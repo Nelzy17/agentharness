@@ -82,3 +82,80 @@ No update, no delete, anywhere in `repository.py`. `append_followup` derives the
 next id from the highest existing suffix rather than from list length, so a
 fixture edit cannot cause a silent id collision. `reset()` exists for test
 isolation, not for production use.
+
+---
+
+## M1 — registry, schemas, and the validation boundary
+
+**Chat Completions, not the Responses API.**
+The Responses API manages conversation state server-side. Managing that state is
+the thing this project exists to implement by hand: the message array, the
+ordering, the one tool message per tool call, the truncation. Choosing the API
+that makes the message array my problem is the point of the exercise, not an
+inconvenience of it. The practical consequence is the tool definition shape --
+Chat Completions nests name, description, parameters and strict under a
+"function" key, where Responses flattens them -- and that nesting is written
+plainly in `to_tool_definition` rather than abstracted over.
+
+**Strict tool calling, with one transformation function.**
+Verified 2026-08-26 against the OpenAI function-calling and structured-outputs
+guides, with pydantic 2.13.4. Strict mode requires every property to appear in
+`required`, requires `additionalProperties: false` on every object, forbids
+`default`, and expresses optional parameters as nullable unions rather than by
+omission. Pydantic's `model_json_schema()` differs from that in four ways: it
+emits `default`, it lists only fields without defaults in `required`, it adds
+`title`, and it cannot express "optional" the way strict mode wants. All four
+are handled in `to_openai_schema` and nowhere else. `pattern` and the numeric
+bounds are supported keywords, so `due_date`'s regex reaches the model as part
+of the contract rather than only as a validator.
+
+Sources: https://developers.openai.com/api/docs/guides/function-calling and
+https://developers.openai.com/api/docs/guides/structured-outputs.
+
+**`extra="forbid"` satisfies the trust boundary and strict mode at once.**
+The config is there because a model emitting an undeclared field is either
+confused or being steered by injected content, and silently dropping it hides
+both. It also happens to make pydantic emit `additionalProperties: false`, which
+is exactly what strict mode requires. One config line, two jobs: the schema the
+model is sent and the validator that enforces it agree because they come from
+the same declaration.
+
+**Tool and field descriptions stay in Python, against CLAUDE.md rule 6.**
+They are schema metadata. A description that has drifted from the type it
+describes is worse than no description, and separating the two files makes drift
+the default. System prompts are standalone artifacts with no such coupling and
+stay in `prompts/`. The exception is narrow: it covers descriptions attached to
+a field or a tool, nothing else.
+
+**`limit` is not exposed to the model.**
+The args model and the tool function signature are allowed to differ, and here
+they do: `get_previous_meetings` keeps its `limit=5` default in Python and
+declares only `physician_name` in its schema. How much history belongs in the
+context window is the harness's decision. Offering it to the model would have
+forced a choice between a required field it must always send, a nullable field
+needing coercion, or dropping strict mode -- three solutions to a problem that
+does not need to exist over fixtures holding at most three meetings. A test
+asserts the divergence so it reads as deliberate.
+
+**`ValidatedCall` is not a `ToolOutcome`.**
+`validate()` returns `ValidatedCall | ToolOutcome`. That way `ToolOutcome` means
+exactly one thing -- a resolved call that owes the model a message -- and every
+member can render one. The alternative, keeping `ValidatedCall` in the union,
+forces a `to_tool_message()` that raises, which is a union member admitting it
+does not belong. M2's execution results join the union; a validated call never
+does.
+
+**The validation message is a budget, not a log line.**
+It becomes a tool message and is the model's only chance to correct itself, so
+it is one line per failed field, capped, with the documentation URL and the
+input echo suppressed at source via `errors(include_url=False,
+include_input=False)`. Not echoing the input is a security choice as much as a
+budget one: an argument the model was steered into producing should not be read
+back to it. Tests assert under 300 characters and no URL, on the failure path
+where iterations are already being spent.
+
+**No `$ref` inliner.**
+The args models are flat, so pydantic emits no `$defs`. Rather than write an
+inliner for a case that cannot currently arise, `to_openai_schema` raises when
+it sees one, and a test hands it a nested model to prove the guard fires. An
+unasserted guard is a guard discovered when it fails to fire.
