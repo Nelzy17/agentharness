@@ -1,0 +1,47 @@
+[
+  {
+    "followup_id": "fu-001",
+    "physician_id": "phy-001",
+    "description": "Send Dr. Evelyn Chen the Nexovar renal impairment dosing guidance she asked for on 18 June.",
+    "due_date": "2026-07-01",
+    "status": "open",
+    "created_by_run_id": null,
+    "created_by_tool_call_id": null
+  },
+  {
+    "followup_id": "fu-002",
+    "physician_id": "phy-001",
+    "description": "Share the Cardizyn titration schedule after the February call.",
+    "due_date": "2026-03-01",
+    "status": "closed",
+    "created_by_run_id": null,
+    "created_by_tool_call_id": null
+  },
+  {
+    "followup_id": "fu-003",
+    "physician_id": "phy-002",
+    "description": "Send Dr. Raj Patel the one-page Trivastol dosing sheet.",
+    "due_date": "2026-07-10",
+    "status": "open",
+    "created_by_run_id": null,
+    "created_by_tool_call_id": null
+  },
+  {
+    "followup_id": "fu-004",
+    "physician_id": "phy-002",
+    "description": "Confirm whether Trivastol requires a dose reduction alongside a sulfonylurea.",
+    "due_date": "2026-07-24",
+    "status": "open",
+    "created_by_run_id": null,
+    "created_by_tool_call_id": null
+  },
+  {
+    "followup_id": "fu-005",
+    "physician_id": "phy-005",
+    "description": "Tell Dr. Sofia Lindqvist the week the Zelmarin label becomes available.",
+    "due_date": "2026-08-05",
+    "status": "open",
+    "created_by_run_id": null,
+    "created_by_tool_call_id": null
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "product_id": "prd-001",
+    "name": "Nexovar",
+    "indication": "Chronic heart failure with reduced ejection fraction",
+    "status": "marketed"
+  },
+  {
+    "product_id": "prd-002",
+    "name": "Cardizyn",
+    "indication": "Hypertension, second line",
+    "status": "marketed"
+  },
+  {
+    "product_id": "prd-003",
+    "name": "Zelmarin",
+    "indication": "Relapsing multiple sclerosis",
+    "status": "pre-launch"
+  },
+  {
+    "product_id": "prd-004",
+    "name": "Trivastol",
+    "indication": "Type 2 diabetes, adjunct to metformin",
+    "status": "marketed"
+  }
+]

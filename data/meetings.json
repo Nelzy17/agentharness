@@ -1,0 +1,70 @@
+[
+  {
+    "meeting_id": "mtg-001",
+    "physician_id": "phy-001",
+    "date": "2026-02-11",
+    "product_discussed": "Cardizyn",
+    "summary": "Introductory call. Walked through the Cardizyn titration schedule for her second-line hypertension patients. She pushed back on the 4-week titration interval as impractical for her clinic.",
+    "open_questions": []
+  },
+  {
+    "meeting_id": "mtg-002",
+    "physician_id": "phy-001",
+    "date": "2026-04-22",
+    "product_discussed": "Nexovar",
+    "summary": "First Nexovar conversation. Reviewed the pivotal trial endpoints. She was interested but wanted to see the subgroup data before changing anything in the heart failure clinic.",
+    "open_questions": []
+  },
+  {
+    "meeting_id": "mtg-003",
+    "physician_id": "phy-001",
+    "date": "2026-06-18",
+    "product_discussed": "Nexovar",
+    "summary": "Reviewed the Nexovar subgroup data she asked for in April. She now has three patients she considers candidates, all with some degree of renal impairment, and she will not start any of them until the dosing question below is answered.",
+    "open_questions": [
+      "What is the recommended Nexovar starting dose and titration schedule for patients with moderate renal impairment? I did not have an answer in the meeting."
+    ]
+  },
+  {
+    "meeting_id": "mtg-004",
+    "physician_id": "phy-002",
+    "date": "2026-05-07",
+    "product_discussed": "Trivastol",
+    "summary": "Ten minutes between clinics. Covered Trivastol as an adjunct to metformin. He asked for a one-page dosing sheet he can keep at the desk.",
+    "open_questions": [
+      "Does Trivastol need a dose reduction when combined with a sulfonylurea?"
+    ]
+  },
+  {
+    "meeting_id": "mtg-005",
+    "physician_id": "phy-004",
+    "date": "2026-06-02",
+    "product_discussed": "Nexovar",
+    "summary": "Nexovar overview with the wider cardiology group. She had already heard about it from Dr. Evelyn Chen and wanted the renal impairment data specifically.",
+    "open_questions": []
+  },
+  {
+    "meeting_id": "mtg-006",
+    "physician_id": "phy-005",
+    "date": "2026-03-19",
+    "product_discussed": "Zelmarin",
+    "summary": "Pre-launch discussion on Zelmarin. She is a site investigator and wanted to know how the commercial dosing would compare to the trial protocol.",
+    "open_questions": []
+  },
+  {
+    "meeting_id": "mtg-007",
+    "physician_id": "phy-005",
+    "date": "2026-05-28",
+    "product_discussed": "Zelmarin",
+    "summary": "Follow-up on the Zelmarin launch timeline. Nothing to share beyond what is public. She asked to be told the week the label is available.",
+    "open_questions": []
+  },
+  {
+    "meeting_id": "mtg-008",
+    "physician_id": "phy-006",
+    "date": "2026-04-09",
+    "product_discussed": "Cardizyn",
+    "summary": "Cardizyn discussion at Meridian General. Mostly formulary mechanics. He prescribes it already and had no clinical questions.",
+    "open_questions": []
+  }
+]

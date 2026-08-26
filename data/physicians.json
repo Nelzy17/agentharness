@@ -1,0 +1,56 @@
+[
+  {
+    "physician_id": "phy-001",
+    "full_name": "Evelyn Chen",
+    "last_name": "Chen",
+    "specialty": "Cardiology",
+    "institution": "Bay Ridge Cardiovascular Institute",
+    "preferred_contact": "email",
+    "notes": "Runs the heart failure clinic. Wants primary sources, not summaries. Sceptical of claims without a trial reference."
+  },
+  {
+    "physician_id": "phy-002",
+    "full_name": "Raj Patel",
+    "last_name": "Patel",
+    "specialty": "Endocrinology",
+    "institution": "Northgate Metabolic Health",
+    "preferred_contact": "phone",
+    "notes": "High prescriber. Short on time; prefers a one-page leave-behind to a full deck."
+  },
+  {
+    "physician_id": "phy-003",
+    "full_name": "Marcus Alvarez",
+    "last_name": "Alvarez",
+    "specialty": "Oncology",
+    "institution": "St. Colman Cancer Centre",
+    "preferred_contact": "email",
+    "notes": "New to the territory. No calls logged yet."
+  },
+  {
+    "physician_id": "phy-004",
+    "full_name": "Amara Okafor",
+    "last_name": "Okafor",
+    "specialty": "Cardiology",
+    "institution": "Bay Ridge Cardiovascular Institute",
+    "preferred_contact": "email",
+    "notes": "Shares a clinic with Dr. Evelyn Chen. Interested in the renal impairment data."
+  },
+  {
+    "physician_id": "phy-005",
+    "full_name": "Sofia Lindqvist",
+    "last_name": "Lindqvist",
+    "specialty": "Neurology",
+    "institution": "Aldergate Neuroscience Unit",
+    "preferred_contact": "email",
+    "notes": "Site investigator on two trials. Asks about pre-launch timelines."
+  },
+  {
+    "physician_id": "phy-006",
+    "full_name": "Daniel Chen-Ruiz",
+    "last_name": "Chen-Ruiz",
+    "specialty": "Cardiology",
+    "institution": "Meridian General Hospital",
+    "preferred_contact": "phone",
+    "notes": "Community cardiology. Mostly second-line hypertension."
+  }
+]
