@@ -51,7 +51,7 @@ class Validator:
         try:
             args = spec.args_model.model_validate(raw_args)
         except ValidationError as error:
-            return InvalidArguments(tool_name=tool_name, message=_compact(error))
+            return InvalidArguments(name=tool_name, message=_compact(error))
         return ValidatedCall(spec=spec, args=args)
 
 

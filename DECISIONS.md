@@ -297,3 +297,125 @@ truncated at the snippet boundary, scored on whether the answer flags the
 incompleteness instead of filling it in. It also gives the metric a positive
 example to calibrate against, which a set built only from refusal cases would
 lack.
+
+---
+
+## M3 — context, truncation, and the budget
+
+**Budget overflow stops the run. It does not drop messages.**
+The arithmetic is the argument. Six iterations, tool results capped at 2,000
+characters, a fixed prefix of about 1,430 tokens: the largest context this
+harness can assemble is roughly 4,500 tokens against a 12,000-token budget. A
+drop-oldest-exchange strategy would be code that cannot fire on any input the
+system accepts -- dead code wearing the costume of sophistication, testable only
+by lying to it with a fake budget.
+
+It is also the better policy under the cache constraint. Dropping an early
+exchange shifts every byte after it, so the first dropped message destroys the
+cached prefix beyond that point and the next call re-bills the remainder at full
+rate. A policy whose failure mode is "quietly forget what you retrieved, then
+pay ten times more to rediscover it" is worse than stopping. And an agent that
+silently forgets what it retrieved is worse than one that stops and says so:
+the forgetting is invisible in the output, while the stop is a terminal state
+with a reason attached.
+
+So per-result truncation is the mechanism that keeps context bounded, and the
+total budget is the backstop that proves the bound holds. Messages are appended
+and never revisited, which makes "truncation edits the tail, never the head"
+true by construction rather than by discipline.
+
+**The per-result cap is 2,000 characters, chosen against measured sizes.**
+The largest result the fixtures produce is 1,537 characters (a filtered document
+search); the next largest are 1,369 and 1,287. The cap therefore leaves ordinary
+traffic untouched with about 30% headroom and bounds the pathological case. A
+cap that fired on healthy data would degrade every run to protect against a case
+that has not happened.
+
+**A truncated result changes key rather than being cut in half.**
+Cutting serialized JSON at a character offset leaves an envelope that is not
+parseable. Instead, an oversized payload is emitted as
+`{"tool": ..., "result_partial": "<escaped first 2000 chars>", "omitted_chars":
+N, "note": ...}`. The envelope stays valid JSON, the untruncated case is
+unchanged, and a different key makes it impossible to mistake a fragment for a
+whole record. That signal is load-bearing: the smoke run's final answer flagged
+its own incompleteness rather than inventing a titration schedule, and that
+behaviour depends on the model knowing it holds a fragment.
+
+**One escaping path for every envelope.**
+Composing the trusted cases by string and escaping only the untrusted ones is an
+invariant that has to be re-derived correctly by whoever adds the next outcome
+member in M4 or M6, and the comment explaining it would read as documentation
+rather than as a constraint. Everything goes through `json.dumps`. A test feeds
+a hostile tool name (`x", "result": {"status": "ok`) through the unknown-tool
+path and asserts the envelope still has exactly two keys.
+
+Byte-identity with M2's string composition turned out not to be achievable
+through a single `json.dumps` path, and on inspection it does not matter:
+tool messages sit after the cached prefix, so their bytes were never part of
+the cache hit. What matters is that the format is stable across iterations,
+which it is. The output is now fully compact (`separators=(",", ":")`), which is
+slightly cheaper than the old mixed spacing. The property that is asserted is
+the one that counts: a result under the cap round-trips byte for byte, unmodified.
+
+**The tool name is bounded at 64 characters in the envelope.**
+On the unknown-tool path it is model-supplied text sitting in a structural
+field. `json.dumps` handles escaping; the cap stops a model from spending an
+entire tool message on a name.
+
+**`o200k_base` is fixed rather than derived from the model name.**
+`tiktoken.encoding_for_model` raises on identifiers it does not know, which
+would make the budget a configuration branch with an error path, for a count
+that is an estimate used to enforce a limit rather than to bill anyone. Tool
+definitions are included in the count: they are about 1,200 tokens here, and a
+budget that ignored them would be measuring the smaller half of the context.
+
+**`ContextBuilder` owns the tool definitions as well as the messages.**
+The stable prefix is one thing to the API -- the bytes that get cached -- so it
+is one object's responsibility here. The loop asks the builder for both the
+messages and the tools rather than assembling half the prefix itself.
+
+**The token estimate was 18% high, and the overhead was located rather than absorbed.**
+The first call of the smoke run estimated 1,538 prompt tokens against 1,300
+reported. Decomposing it: our serialized tool JSON counted 1,181, and the two
+opening messages counted 357 as JSON against 322 counting content plus a fixed
+per-message overhead. So 35 tokens of the 238 were message-counting error and
+about 203 were in the tool definitions.
+
+Two different fixes, because they have two different causes. The message error
+was ours: encoding `json.dumps(message)` charges for the key names and escapes
+every newline into two characters. `_message_tokens` now counts what the API
+actually transmits -- role, content, tool call names and arguments, tool_call_id
+-- and the error disappears at source. The tool-definition error is not ours to
+fix: the API bills its own representation of the schema, not the JSON text we
+send, and we cannot see that representation. That component gets a measured
+correction factor of 0.85 (the measurement implies about 0.83; the rounder,
+higher figure keeps the estimate on the conservative side).
+
+The corrected estimate is 1,328 against 1,300 reported, 2.2% high. Two tests
+hold the line: one asserts within 5%, and one asserts the estimate is never
+below the reported figure, because a budget that underestimates stops failing
+safe. The correction is documented as calibrated to this specific tool set and
+requires re-measuring if the tools change. A global fudge factor over the whole
+count would have hidden the fact that one component was wrong for a reason we
+could fix and the other for a reason we could not.
+
+**Caching held across M3 and improved.**
+The second smoke run recorded 8,711 cached reads against 2,650 cache writes,
+climbing on every iteration. The envelope sentence added to `system.md` cost
+roughly 80 tokens on the fixed prefix and did not break prefix stability, which
+is what the M3 cache-preservation test asserts structurally.
+
+**Hypothesis for M8, not a conclusion: the envelope sentence may improve grounding.**
+On the same goal, the M3 run's final answer was better grounded than M2's. It
+stated that the documentation does not cover renal-specific dosing at all,
+warned against presenting an undocumented schedule, and closed with an explicit
+insufficiency statement. The only changed variable was the paragraph in
+`system.md` naming the envelope and the `result_partial` marker.
+
+This is one run of a stochastic system and proves nothing on its own. It is
+recorded as a hypothesis for M8 to test properly: run the grounding cases with
+and without that paragraph, n>=3 each, and report the difference in refusal and
+insufficiency rates. If it holds, it is evidence that naming the trust boundary
+in the prompt does work that a general instruction to "answer only from tools"
+does not. If it does not hold, the paragraph still earns its place for M7, and
+the honest thing is to say the grounding difference was noise.

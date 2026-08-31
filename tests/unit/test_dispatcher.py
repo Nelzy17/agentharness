@@ -22,12 +22,13 @@ def test_a_successful_call_carries_the_serialized_domain_result():
     assert json.loads(outcome.result_json)["physician"]["physician_id"] == "phy-001"
 
 
-def test_the_result_is_wrapped_so_it_is_never_read_as_the_harness_speaking():
-    outcome = dispatch(validated("get_physician_profile", {"physician_name": "Evelyn Chen"}))
-    envelope = json.loads(outcome.to_tool_message())
+def test_the_payload_is_the_bare_domain_result():
+    """Wrapping moved to the sanitizer in M3; dispatch carries the result only.
 
-    assert set(envelope) == {"tool", "result"}
-    assert envelope["tool"] == "get_physician_profile"
+    The envelope assertions that used to live here are now in test_sanitizer.py.
+    """
+    outcome = dispatch(validated("get_physician_profile", {"physician_name": "Evelyn Chen"}))
+    assert json.loads(outcome.payload())["status"] == "ok"
 
 
 def test_a_domain_not_found_is_a_success_not_a_failure():
@@ -48,7 +49,7 @@ def test_a_tool_that_raises_becomes_a_sanitized_failure(caplog):
 
     assert isinstance(outcome, ToolFailed)
     assert outcome.model_visible is True
-    message = outcome.to_tool_message()
+    message = outcome.payload()
     assert "get_physician_profile" in message
     for leak in (SECRET, "RuntimeError", "Traceback"):
         assert leak not in message
@@ -65,7 +66,7 @@ def test_the_traceback_goes_to_the_log_and_only_to_the_log(caplog):
 
     assert SECRET in caplog.text
     assert "Traceback" in caplog.text
-    assert SECRET not in outcome.to_tool_message()
+    assert SECRET not in outcome.payload()
 
 
 def test_arguments_reach_the_function_by_name():

@@ -299,3 +299,95 @@ def test_the_tool_definitions_go_with_every_call():
 
     for tools in client.tools_seen:
         assert [tool["function"]["name"] for tool in tools] == build_registry().names()
+
+
+# --- cache preservation -------------------------------------------------------
+
+def test_the_context_only_ever_grows_at_the_tail():
+    """The cache-preservation test.
+
+    What gets cached is the stable prefix of the request, and a prefix hit
+    survives only while every byte before the first change is identical. So two
+    properties matter, and both are asserted here against the actual message
+    arrays the client received: the system prompt and tool definitions are
+    byte-identical on every call, and no message that was already sent is ever
+    rewritten. Truncation that edited a message in place would break the second
+    one, and would cost more in re-billed input than it saved.
+    """
+    loop, client = build_loop(
+        [
+            assistant_tool_calls(
+                ("get_physician_profile", {"physician_name": "Evelyn Chen"}), id_prefix="a"
+            ),
+            assistant_tool_calls(
+                ("get_previous_meetings", {"physician_name": "Evelyn Chen"}), id_prefix="b"
+            ),
+            assistant_tool_calls(
+                ("search_product_docs", {"query": "nexovar dosing", "product_name": "Nexovar"}),
+                id_prefix="c",
+            ),
+            assistant_text("Here is your brief."),
+        ]
+    )
+    loop.run(GOAL)
+
+    assert len(client.calls) == 4
+    first = client.calls[0]
+    for call in client.calls[1:]:
+        # The stable prefix, byte for byte.
+        assert call[:2] == first[:2]
+        # And every message already sent is unchanged in every later call.
+        assert call[: len(first)] == first
+    # Each call is a strict extension of the one before it.
+    for earlier, later in zip(client.calls, client.calls[1:]):
+        assert later[: len(earlier)] == earlier
+        assert len(later) > len(earlier)
+
+
+def test_the_tool_definitions_are_byte_identical_on_every_call():
+    loop, client = build_loop(
+        [
+            assistant_tool_calls(("get_open_followups", {"physician_name": "Raj Patel"})),
+            assistant_text("Two outstanding."),
+        ]
+    )
+    loop.run(GOAL)
+
+    serialized = {json.dumps(tools, sort_keys=False) for tools in client.tools_seen}
+    assert len(serialized) == 1
+
+
+# --- the envelope on the wire -------------------------------------------------
+
+def test_every_tool_message_is_enveloped_including_the_failures():
+    loop, _ = build_loop(
+        [
+            assistant_tool_calls(
+                ("get_physician", {"physician_name": "Evelyn Chen"}),
+                ("get_previous_meetings", {"wrong_field": "x"}),
+                ("get_open_followups", {"physician_name": "Raj Patel"}),
+            ),
+            assistant_text("Done."),
+        ]
+    )
+    result = loop.run(GOAL)
+
+    for message in tool_messages(result):
+        envelope = json.loads(message["content"])
+        assert "tool" in envelope
+        assert {"result", "error", "result_partial", "error_partial"} & set(envelope)
+
+
+# --- the budget as a termination condition ------------------------------------
+
+def test_a_context_that_outgrows_the_budget_stops_the_run_cleanly():
+    """Overflow is a controlled stop, not an exception escaping to the caller."""
+    from agentharness.harness.loop import AgentLoop
+
+    client = FakeModelClient([assistant_text("never reached")])
+    loop = AgentLoop(client, build_registry(), context_budget=10)
+    result = loop.run(GOAL)
+
+    assert result.terminal_reason is TerminalReason.CONTEXT_BUDGET_EXCEEDED
+    assert result.iterations == 0
+    assert client.calls == []

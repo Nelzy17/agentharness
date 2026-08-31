@@ -5,11 +5,17 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from agentharness.harness.context import ContextBuilder, load_prompt
+from agentharness.harness.context import (
+    MAX_CONTEXT_TOKENS,
+    ContextBudgetExceeded,
+    ContextBuilder,
+    load_prompt,
+)
 from agentharness.harness.dispatcher import dispatch
 from agentharness.harness.model_client import TokenUsage, ToolCall
 from agentharness.harness.outcomes import InvalidArguments, ToolOutcome
 from agentharness.harness.registry import ToolRegistry
+from agentharness.harness.sanitizer import sanitize
 from agentharness.harness.validator import ValidatedCall, Validator
 
 MAX_ITERATIONS = 6
@@ -25,6 +31,10 @@ class TerminalReason(enum.Enum):
 
     COMPLETED = "the model produced a final answer"
     MAX_ITERATIONS = "the run reached the iteration cap without a final answer"
+    CONTEXT_BUDGET_EXCEEDED = (
+        "the assembled context exceeded the token budget, so the run stopped "
+        "rather than discard what it had already retrieved"
+    )
 
 
 @dataclass(frozen=True)
@@ -49,20 +59,42 @@ class AgentLoop:
         model_client: Any,
         registry: ToolRegistry,
         max_iterations: int = MAX_ITERATIONS,
+        context_budget: int = MAX_CONTEXT_TOKENS,
     ) -> None:
         self._model_client = model_client
         self._registry = registry
         self._validator = Validator(registry)
         self._max_iterations = max_iterations
+        self._context_budget = context_budget
         self._system_prompt = load_prompt("system")
 
     def run(self, goal: str) -> RunResult:
-        context = ContextBuilder(self._system_prompt, goal)
-        tools = self._registry.tool_definitions()
+        context = ContextBuilder(
+            self._system_prompt,
+            goal,
+            self._registry.tool_definitions(),
+            token_budget=self._context_budget,
+        )
         last_content: str | None = None
 
         for iteration in range(1, self._max_iterations + 1):
-            response = self._model_client.complete(context.messages(), tools)
+            try:
+                messages = context.messages_for_model_call()
+            except ContextBudgetExceeded:
+                # Stopping is the policy. Dropping older exchanges to fit would
+                # forget something already retrieved, and would shift every byte
+                # after the drop, destroying the cached prefix and re-billing the
+                # remainder at full rate.
+                return self._result(
+                    last_content,
+                    TerminalReason.CONTEXT_BUDGET_EXCEEDED,
+                    iteration - 1,
+                    context,
+                )
+
+            response = self._model_client.complete(
+                messages, context.tool_definitions()
+            )
             context.add_assistant(response.message)
             last_content = response.message.content or last_content
 
@@ -81,7 +113,7 @@ class AgentLoop:
             # inside the resolution branch is how CLAUDE.md rule 3 gets broken.
             outcomes = [self._resolve(call) for call in response.message.tool_calls]
             for call, outcome in zip(response.message.tool_calls, outcomes, strict=True):
-                context.add_tool_result(call.id, outcome.to_tool_message())
+                context.add_tool_result(call.id, sanitize(outcome))
 
         return self._result(
             last_content, TerminalReason.MAX_ITERATIONS, self._max_iterations, context
@@ -96,7 +128,7 @@ class AgentLoop:
             # schema is consulted. Same class of failure as a schema rejection:
             # the model wrote the arguments, and the model can fix them.
             return InvalidArguments(
-                tool_name=call.name, message="the arguments were not valid JSON"
+                name=call.name, message="the arguments were not valid JSON"
             )
 
         outcome = self._validator.validate(call.name, raw_args)

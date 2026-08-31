@@ -25,5 +25,5 @@ def dispatch(call: ValidatedCall) -> ToolOutcome:
         # context window would hand whatever caused the failure a free channel
         # to speak to the model.
         logger.exception("tool %s raised", call.spec.name)
-        return ToolFailed(tool_name=call.spec.name)
-    return ToolSucceeded(tool_name=call.spec.name, result_json=result.model_dump_json())
+        return ToolFailed(name=call.spec.name)
+    return ToolSucceeded(name=call.spec.name, result_json=result.model_dump_json())
