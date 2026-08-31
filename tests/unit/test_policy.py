@@ -215,6 +215,20 @@ def test_every_terminal_reason_is_reachable():
         .terminal_reason
     )
 
+    # The fatal path does not return a RunResult -- it records and re-raises --
+    # so its reason is collected from the trace instead.
+    from agentharness.harness.model_client import HarnessFatalError
+    from agentharness.harness.tracer import InMemoryTracer
+
+    class BrokenClient(FakeModelClient):
+        def complete(self, messages, tools):
+            raise HarnessFatalError("the API rejected our request")
+
+    tracer = InMemoryTracer()
+    with pytest.raises(HarnessFatalError):
+        AgentLoop(BrokenClient([]), build_registry(), tracer=tracer).run(GOAL)
+    produced.add(TerminalReason[next(iter(tracer.runs.values()))["terminal_reason"]])
+
     assert produced == set(TerminalReason)
 
 

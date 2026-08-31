@@ -77,6 +77,9 @@ class AssistantMessage:
 class ModelResponse:
     message: AssistantMessage
     usage: TokenUsage
+    # How many attempts this response cost. The loop cannot see retries -- they
+    # happen below it -- and the trace should record that a call was retried.
+    attempts: int = 1
 
 
 class ModelClient:
@@ -94,7 +97,7 @@ class ModelClient:
         backoff_seconds: float = BACKOFF_SECONDS,
     ) -> None:
         self._client = client
-        self._model = model
+        self.model = model
         self._max_attempts = max_attempts
         self._backoff_seconds = backoff_seconds
         self.usage = TokenUsage()
@@ -106,7 +109,7 @@ class ModelClient:
         for attempt in range(1, self._max_attempts + 1):
             try:
                 completion = self._client.chat.completions.create(
-                    model=self._model,
+                    model=self.model,
                     messages=messages,
                     tools=tools,
                     # v1 is sequential. The response still carries a list of
@@ -141,7 +144,11 @@ class ModelClient:
                 # still cost the user tokens.
                 usage = _usage_of(completion)
                 self.usage = self.usage + usage
-                return ModelResponse(message=_assistant_message(completion), usage=usage)
+                return ModelResponse(
+                    message=_assistant_message(completion),
+                    usage=usage,
+                    attempts=attempt,
+                )
 
             if attempt < self._max_attempts:
                 time.sleep(self._backoff_seconds * 2 ** (attempt - 1))

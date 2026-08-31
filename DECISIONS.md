@@ -627,3 +627,170 @@ from six to eight is 33% more iterations but 55% more tokens, because every
 iteration re-sends the entire context. Iteration cost is quadratic in the cap,
 not linear, which is also why the cap is the right place to bound cost and the
 token budget is only the backstop behind it.
+
+---
+
+## Prompts express intent; mechanisms enforce it
+
+Three data points from M2 to M4, in the order they were learned.
+
+**The `sources` fabrication.** Two prompt edits failed. The first description
+asked for tool_call ids; the model invented `call_1`..`call_5`. The description
+was then strengthened to say the ids are long opaque strings that must be copied
+exactly and never invented or renumbered; the next run invented five UUIDs. The
+instruction was followed in form and ignored in substance both times -- the
+fabrication changed shape, not frequency.
+
+Validation caught it honestly: the run ended with no answer rather than
+recording a confident one supported by invented citations. But validation only
+detects. What fixed the cause was a context change: tool_call ids existed only
+in protocol fields, never in content, so the model had never seen one and was
+guessing at a format it had not been shown. Putting the id in the envelope made
+it readable text. No amount of instruction can supply information that is absent
+from the context -- the model was being asked to report data it had never been
+given, and asking more firmly cannot fix that.
+
+**Grounding.** The envelope paragraph in `system.md` coincided with noticeably
+sharper refusals in the next run. That is recorded as a hypothesis for M8 to
+test with n>=3 and not as a result, because one run of a stochastic system is
+not evidence, and the temptation to bank a favourable single observation as a
+finding is exactly how prompt engineering acquires its reputation.
+
+**Tool selection.** It never needed prompt intervention at all. The model has
+chosen sensible tools from the first real run onward, because the contract is
+carried structurally: names, typed arguments, and descriptions attached to the
+schema the model is actually sent. Nothing about tool choice had to be asserted
+in prose, so nothing about it drifted.
+
+The pattern across all three: a prompt is a statement of intent, useful for
+telling the model what the job is, and unreliable as a control. Where behaviour
+must hold, it has to be enforced by something that can fail loudly -- a schema,
+a validator, a budget, a terminal state -- or supplied by giving the model the
+information it lacked. The prompt is where you say what you want; the mechanism
+is where you find out whether you got it.
+
+---
+
+## M5 — tracing, persistence, REST
+
+**The trace records actions, and the schema is where that is enforced.**
+There is no column for reasoning, rationale or explanation, and none for the
+assembled context. A recorded rationale is a story the model tells about itself
+after the fact: it cannot be checked against anything, and mixing it with
+observed facts makes the facts less trustworthy rather than the rationale more
+so. The context is excluded for a different reason -- "just store the messages
+for debugging" is the one change that turns a trace into a transcript, and it
+will be proposed eventually. A test reads `PRAGMA table_info` for both tables
+and asserts the exact column set, so either addition has to be made deliberately
+and against a failing test.
+
+**`reason_text` is stored, not derived.**
+The human-readable half of the terminal reason is written into the row even
+though it is derivable from the enum. That is what lets `cli/trace.py` import
+nothing but the store and the standard library. A trace only its author can read
+is a cache, not a record, and a test asserts the renderer imports no harness,
+domain or tools module.
+
+**The clock is on the loop; the tracer does no time arithmetic.**
+Durations are measured at step boundaries by one injected clock in one place, so
+a clock that lies can only be wrong there. The trap this avoids is specific: a
+fake returning a constant makes every duration zero and every assertion pass
+while measuring nothing. The integration clock advances by a fixed step on every
+read, and a test asserts every recorded duration is greater than zero.
+
+**`run_id` is threaded explicitly rather than held on the loop.**
+One `AgentLoop` serves many runs -- the API builds one per request against a
+shared registry, and nothing stops a caller reusing an instance -- so per-run
+state on the instance is wrong the moment two runs overlap, and it fails in the
+worst available way: a write attributed to the wrong run. `run()` accepts an
+optional id so the API can generate one before the run starts and still name it
+if the run dies. M6 extends the same parameter one level further, into the
+dispatcher, where the write tool needs it.
+
+**`ToolFailed` carries the traceback; `payload()` never touches it.**
+This completes the split M2 started. The same event has two audiences: the model
+gets a generic message that names the tool and nothing else, the trace gets the
+full traceback. One outcome object holds both and one method decides what the
+model sees, rather than the decision being spread between a logger and a return
+value.
+
+**The trace format supersedes the sketch DESIGN refers to.**
+Same spine -- step, tool, arguments, outcome, duration, totals -- with two
+additions. The terminal reason is rendered in full on its own line under the
+goal, with the error detail beneath it for failed runs, because a trace is
+almost always opened because something went wrong and the enum name alone is not
+why anyone opened it. And the cache counters appear in the header and per model
+call, because they are the clearest evidence of the caching behaviour the design
+is built around.
+
+The renderer is ASCII only. It printed arrows and middots until the first real
+run on Windows raised `UnicodeEncodeError` from cp1252 -- a trace renderer that
+crashes on the platform it runs on is not a renderer.
+
+**`AGENTHARNESS_MODEL` from the environment for the server, an argument for the CLI.**
+M2 made the model a required CLI argument specifically so it could not drift
+into configuration. That reasoning holds for the CLI, where the model is the
+variable of an experiment and M8 will compare tiers by changing it per run. For
+a server it is deployment configuration: fixed for the process lifetime,
+identical across every run it serves, and recorded on every trace row so no run
+is ambiguous about which model produced it. Same string, different kind of
+thing.
+
+**No module-level `app`.**
+Building one at import would open a database and read the environment as a side
+effect of importing anything in that module, including from a test. It is served
+as a factory instead: `uvicorn agentharness.api.app:create_app --factory`.
+
+**Correction to the M4 sources finding: the envelope change is partial mitigation.**
+The M4 entry above should be read with this. Putting `tool_call_id` in the
+envelope did not eliminate fabricated citations. The first run after the change
+cited real ids on the first attempt; the next run fabricated again, was
+rejected, and recovered with correct ids on the retry. One success and one
+failure across two runs.
+
+So the honest statement is that the change reduced the fabrication rate rather
+than fixing the behaviour, and the validation remains load-bearing -- it is what
+turned the second run's fabrication into a recoverable error rather than a
+recorded falsehood. The actual rate is not knowable from two runs and is an M8
+measurement: fabricated-citation rate over n>=3 per case, with and without the
+envelope field if the comparison is worth the runs.
+
+This is the same discipline applied to our own fix that was applied to the
+prompt edits. A single favourable run is not evidence, and the temptation to
+call the problem solved is strongest immediately after shipping the fix.
+
+**The recovery consumed exactly the headroom the raised cap created.**
+That run reached seven iterations: five gathering, one rejected submission, one
+corrected submission. Under the old cap of six it would have terminated at
+MAX_ITERATIONS with no answer, with nothing actually wrong -- the model had the
+information and had already been told how to fix its citation. The cap change
+was not speculative headroom; it was the difference between a completed run and
+a failed one on the very next real execution.
+
+**Durations were being measured with a clock that cannot measure them.**
+Every tool duration in the first real trace rendered as 0ms. The tools are
+genuinely fast, but seven consecutive zeros is an artefact rather than a result.
+`time.monotonic` on Windows is `GetTickCount64()` with a resolution of 15.625ms:
+20,000 consecutive reads return a single distinct value, so every operation this
+harness performs floors to zero. Durations now use `time.perf_counter`
+(QueryPerformanceCounter, 100ns), which is the right clock for an interval on
+any platform.
+
+Two clocks now, because one number cannot answer both questions. `perf_counter`
+measures intervals and has an arbitrary epoch, so storing it as `started_at`
+would record something that looks like a timestamp and is not one; `time.time`
+records when a run happened. The termination policy keeps `monotonic` for its
+wall-clock budget, where 15ms of resolution against a 60-second limit is
+irrelevant.
+
+The scripted-clock test could not catch this, because a fake with distinct
+values makes every duration non-zero by construction -- it proves the plumbing
+and nothing about the measurement. The new test sleeps a known 20ms through the
+loop's own clock and asserts the measurement, and a second asserts that a
+sub-millisecond call still records above zero. A third asserts the interval
+clock resolves 2,000 reads into more than 1,000 distinct values, so a future
+swap back to `monotonic` fails there rather than in a trace nobody re-reads.
+
+Same shape as the renderer's UnicodeEncodeError one milestone earlier: both were
+found by running the thing rather than by testing it, and both were invisible to
+tests that exercised the code without exercising the environment.

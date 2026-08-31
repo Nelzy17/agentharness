@@ -5,6 +5,7 @@ come through the validator first.
 """
 
 import logging
+import traceback
 
 from agentharness.harness.outcomes import ToolFailed, ToolOutcome, ToolSucceeded
 from agentharness.harness.validator import ValidatedCall
@@ -25,5 +26,5 @@ def dispatch(call: ValidatedCall) -> ToolOutcome:
         # context window would hand whatever caused the failure a free channel
         # to speak to the model.
         logger.exception("tool %s raised", call.spec.name)
-        return ToolFailed(name=call.spec.name)
+        return ToolFailed(name=call.spec.name, detail=traceback.format_exc())
     return ToolSucceeded(name=call.spec.name, result_json=result.model_dump_json())

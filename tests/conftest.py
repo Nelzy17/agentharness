@@ -34,6 +34,10 @@ class ScriptExhausted(AssertionError):
 
 
 class FakeModelClient:
+    # The tracer records which model produced a run; the fake says so plainly
+    # rather than borrowing a real identifier.
+    model = "fake-model"
+
     def __init__(
         self,
         script: list[AssistantMessage],

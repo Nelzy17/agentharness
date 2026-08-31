@@ -64,6 +64,9 @@ class TerminalReason(enum.Enum):
     WALL_CLOCK_EXCEEDED = "the run exceeded its wall-clock budget"
     TOKEN_BUDGET_EXCEEDED = "the run exceeded its cumulative token budget"
     NO_PROGRESS = "the model returned neither a tool call nor an answer"
+    HARNESS_ERROR = (
+        "the harness could not continue -- a fault on our side, not the model's"
+    )
     CONTEXT_BUDGET_EXCEEDED = (
         "the assembled context exceeded the token budget, so the run stopped "
         "rather than discard what it had already retrieved"

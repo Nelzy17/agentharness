@@ -202,9 +202,15 @@ class ToolSucceeded(ToolOutcome):
 
 @dataclass(frozen=True)
 class ToolFailed(ToolOutcome):
-    """A tool raised. The model is told that much and nothing more."""
+    """A tool raised. The model is told that much and nothing more.
+
+    `detail` is the full traceback. It is carried on the outcome so the tracer
+    can record it, and `payload()` never touches it: one event, two audiences,
+    and one place deciding what each of them sees.
+    """
 
     name: str
+    detail: str = ""
 
     @property
     def tool_name(self) -> str:
