@@ -159,3 +159,141 @@ The args models are flat, so pydantic emits no `$defs`. Rather than write an
 inliner for a case that cannot currently arise, `to_openai_schema` raises when
 it sees one, and a test hands it a nested model to prove the guard fires. An
 unasserted guard is a guard discovered when it fails to fire.
+
+---
+
+## M2 — the execution loop
+
+**The SDK's types stop at `model_client.py`.**
+The loop, the context builder and the tests work with `AssistantMessage`,
+`ToolCall`, `TokenUsage` and `ModelResponse`, declared in that file and
+converted from the SDK's objects there. Two things follow. The fake client is a
+peer of the real one rather than a mock of the SDK, so "the loop cannot tell
+which client it has" is structurally true. And the message array stays ours to
+build, which is the reason for choosing Chat Completions in the first place.
+
+**The SDK client is injected into `ModelClient`.**
+Retry, fatal classification and usage accrual are the interesting behaviour in
+that file, and none of it is testable if the client is constructed inside. A
+stub with a `chat.completions.create` exercises every branch with no network.
+
+**Retryable means timeout, connection error, or 5xx. Everything else is fatal.**
+A 400 is a malformed request -- a message array that breaks the tool-call
+protocol, or a schema the API rejects -- so retrying sends the same broken
+request again. Other 4xx are ours too: a bad key, a bad model name. 429 is
+knowingly not retried in v1: rate limiting is a real transient condition, but
+handling it properly means honouring `Retry-After` rather than backing off
+blindly, and a run that hits a rate limit failing loudly is more honest than one
+that stalls. Revisit if it ever fires.
+
+**Usage accrues inside the attempt loop, not around it.**
+The accumulator is updated the moment a response object exists and before
+anything inspects it. A 5xx carries no usage, so today a retried call costs what
+its successful attempt reported -- but the accrual point is what keeps that true
+if an arrived response is ever discarded. Counting only what the loop ends up
+using is how a cost metric quietly becomes a lie.
+
+**The protocol invariant is enforced in `ContextBuilder`, not just observed.**
+The loop resolves every tool call to an outcome before emitting any tool
+message, so the outcome list has the tool call list's length by construction and
+no branch can skip one. On top of that, `ContextBuilder.messages()` refuses to
+hand back an array in which an assistant message's `tool_call.id` has no
+matching tool message. The convention is what usually holds; the check is what
+turns a future `continue` into a `HarnessFatalError` naming the unanswered call
+instead of an opaque 400 a second later. The one place that assembles messages
+is the one place that can check them.
+
+**Malformed JSON arguments reuse `InvalidArguments`.**
+Arguments arrive as a string, so they can fail before any schema is consulted.
+That is the same class of failure as a schema rejection -- the model wrote them
+and the model can fix them -- so it produces the existing outcome rather than a
+new union member. Parsing happens in the loop beside validation, not in
+`ModelClient`: it is trust-boundary work.
+
+**Tool results are wrapped from the start.**
+`ToolSucceeded.to_tool_message()` emits `{"tool": ..., "result": ...}`. The
+sanitizer in M3 adds truncation and whatever else, but leaving a domain result
+unwrapped in the context for a milestone would break CLAUDE.md rule 4, and the
+envelope is one line. The envelope is composed by string rather than by
+re-parsing the result JSON: `result_json` is already valid JSON, and `tool_name`
+comes from the registered spec rather than from the model, so neither needs
+escaping.
+
+**A tool exception tells the model the tool name and nothing else.**
+M0 made every expected condition a structured result, so an exception is a real
+fault. The traceback goes to `logging` and no further: it carries file paths,
+fixture contents and internal structure, and putting it in the context window
+would hand whatever caused the failure a free channel to speak to the model.
+Tests assert the sanitized message contains no path, no exception class, and no
+traceback, and that the traceback did reach the log.
+
+**`TerminalReason` lives in `loop.py` for now.**
+Two values in M2, `COMPLETED` and `MAX_ITERATIONS`, with the human-readable
+reason as the enum value. M4 builds the rest of the termination policy and will
+likely move the enum to `policy.py` with it, rather than creating an
+almost-empty file today.
+
+**`cli/smoke.py` is a small addition to the file list in DESIGN Part 4.**
+The model identifier is a required command-line argument, not configuration: it
+is the variable of the experiment, and M8 runs the same code against two tiers
+to compare them. A value in `.env` becomes an implicit default nobody remembers
+setting, and an unset variable that stops and asks is a config branch to reason
+about. `OPENAI_API_KEY` comes from the environment; nothing in the repo parses
+`.env`.
+
+**`reasoning_effort="none"` is hardcoded in the create call.**
+Chat Completions returns a 400 for a request carrying function tools on this
+model family unless reasoning is disabled. It is not a performance tweak and the
+comment in `model_client.py` says so, because a reader who mistakes it for one
+will "improve" it and get a 400 that looks like a schema problem. The API's own
+suggestion was to move to `/v1/responses`, which we declined: that endpoint
+manages the message array server-side, and building the message array by hand is
+the thing this project exists to do. Hardcoded rather than configurable -- one
+implementation, and configuration for one implementation is ceremony.
+
+**Open question for M8: is reasoning-off a confound in the tier comparison?**
+The restriction above was observed on Luna. If Sol or Terra accept function
+tools with reasoning enabled, then a Luna-vs-Sol comparison run through this
+client is measuring reasoning-off against reasoning-on rather than tier
+capability, and the tool-selection delta M8 reports would be a different number
+than it claims to be. Verify at M8 by sending each tier a tool-carrying request
+with reasoning enabled. Then either force `"none"` on every tier so the
+comparison is like-for-like, or report the asymmetry explicitly alongside the
+numbers. Do not let this go unexamined into the eval report.
+
+**Token accrual counts cache reads and writes separately.**
+The usage payload carries `prompt_tokens_details.cached_tokens` alongside
+`prompt_tokens`, and cached input bills at roughly a tenth of the standard rate.
+Accruing only `prompt_tokens` would have made M8's cost metric overstate the
+bill substantially: the smoke run's final call cached up to 2298 of its 2737
+prompt tokens. `TokenUsage` therefore carries `cached_tokens` and
+`cache_write_tokens` as well, accrued at the same call site and on the same
+terms, including retried calls. Both are subsets of `prompt_tokens` rather than
+additions to it, so `total_tokens` stays prompt plus completion; applying the
+rate weights is M8's job, and counting honestly is the client's.
+
+**Prompt caching constrains context ordering, and that is a reason rather than a
+convention.**
+What gets cached is the stable prefix of the request: the system prompt and the
+tool definitions, which are byte-identical on every iteration of a run. The
+cache hit is on a prefix, so it survives only as long as nothing before the
+first varying byte changes. Two consequences for M3. Ordering must keep the
+system prompt and tool definitions first and byte-stable across iterations --
+moving anything variable ahead of them, or regenerating the tool schemas with a
+different key order, destroys the hit and multiplies input cost by roughly ten.
+And truncation must edit the tail rather than the head: rewriting an earlier
+tool result to save tokens invalidates every cached byte after it, which costs
+far more than the truncation saves. This is measured behaviour from the smoke
+run, not a guess.
+
+**M8 eval case, observed in the smoke run: grounding under a truncated extract.**
+`search_product_docs` returned a snippet that cut off mid-sentence in the middle
+of a titration schedule. The model stated that the extract was incomplete and
+declined to present the fuller schedule rather than completing it from its own
+knowledge. That is exactly the positive case the grounding metric is meant to
+detect, and it arose naturally rather than being provoked. Add it to
+`cases.yaml` as a case in its own right: a query whose best-matching document is
+truncated at the snippet boundary, scored on whether the answer flags the
+incompleteness instead of filling it in. It also gives the metric a positive
+example to calibrate against, which a set built only from refusal cases would
+lack.

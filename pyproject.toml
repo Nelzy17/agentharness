@@ -9,11 +9,12 @@ description = "A hand-written LLM tool-calling harness, built to be explained."
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.7",
+    "openai>=3.0",
 ]
 
 [project.optional-dependencies]
-# Each milestone adds only what it actually imports: fastapi (M5), openai and
-# tiktoken (M2/M3), pyyaml (M8).
+# Each milestone adds only what it actually imports: tiktoken (M3), fastapi
+# (M5), pyyaml (M8).
 dev = [
     "pytest>=8.0",
 ]

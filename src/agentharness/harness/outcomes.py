@@ -54,3 +54,38 @@ class InvalidArguments(ToolOutcome):
 
     def to_tool_message(self) -> str:
         return f"Invalid arguments for {self.tool_name}: {self.message}"
+
+
+@dataclass(frozen=True)
+class ToolSucceeded(ToolOutcome):
+    """A tool ran and returned a domain result.
+
+    The result is carried already serialized. It is always wrapped before it
+    reaches the model (CLAUDE.md rule 4), so nothing a tool returned can be read
+    as though the harness had said it.
+    """
+
+    tool_name: str
+    result_json: str
+
+    def to_tool_message(self) -> str:
+        # Composed rather than re-parsed: result_json is already valid JSON, and
+        # tool_name is ours -- it comes from the registered spec, never from the
+        # model -- so neither needs escaping here. Truncation arrives with the
+        # sanitizer in M3.
+        return f'{{"tool": "{self.tool_name}", "result": {self.result_json}}}'
+
+
+@dataclass(frozen=True)
+class ToolFailed(ToolOutcome):
+    """A tool raised. The model is told that much and nothing more."""
+
+    tool_name: str
+
+    def to_tool_message(self) -> str:
+        return (
+            f"The tool {self.tool_name} failed unexpectedly and returned nothing. "
+            "This is a fault in the system, not a problem with how you called it. "
+            "Do not call it again: continue without it, and tell the user what "
+            "you were unable to retrieve."
+        )
