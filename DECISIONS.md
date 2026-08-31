@@ -419,3 +419,211 @@ insufficiency rates. If it holds, it is evidence that naming the trust boundary
 in the prompt does work that a general instruction to "answer only from tools"
 does not. If it does not hold, the paragraph still earns its place for M7, and
 the honest thing is to say the grounding difference was noise.
+
+---
+
+## M4 — termination policy and the error taxonomy
+
+**Every condition is evaluated in one place; the context budget is the stated exception.**
+`TerminationPolicy.check` runs once per iteration, before anything else, and
+decides in one ordered list: no progress, repeats, strikes, wall clock, tokens,
+iterations. State is recorded as events happen and read there. Adding a seventh
+condition is a clause in that list, not another exit somewhere in the loop.
+
+The context budget stays enforced in `ContextBuilder`. It is a property of the
+assembled context rather than of the run, and it is checked at the moment the
+context is assembled, which is the only moment the number exists. Duplicating
+the threshold into the policy so it could be checked twice would trade a real
+invariant -- one place assembles messages and that place knows their size --
+for a cosmetic one about where the word "budget" appears.
+`TerminalReason.CONTEXT_BUDGET_EXCEEDED` is in the enum with the rest, so no run
+ends in a state the policy does not name.
+
+**Order of evaluation: most diagnostic first, iteration cap last.**
+When two conditions are true, the reason reported should explain the run. A run
+that hit the cap while also making three failing calls in a row is better
+described by the strikes. The cap is the catch-all and goes last.
+
+**Repeat detection is split in two, because there are two questions.**
+Argument identity answers "is the model stuck": the same tool with the same
+arguments, hashed with object keys sorted so argument order cannot disguise a
+repeat. The second such call does not re-execute the tool -- it returns the
+prior result with a note, which answers what the model was actually asking, that
+there is nothing more to find. The third ends the run. It is deliberately not
+counted as an error strike: it has its own counter, and counting it twice would
+end runs for the wrong stated reason.
+
+Result identity answers a different question -- "is this worth spending context
+on". Different arguments reaching the same records, which the fixtures make
+likely ("Patel" and "Raj Patel" produce byte-identical results), get a pointer
+to the earlier tool_call_id instead of a second copy of the bytes. It terminates
+nothing and counts towards nothing.
+
+Result identity does **not** catch the behaviour observed in both smoke runs,
+where two differently-worded queries returned the same top document. Different
+queries produce different scores and orderings, so the serialized results differ
+even when the top document is identical. Catching that properly would need a
+hash of the returned doc_id set, which is domain knowledge inside the harness --
+the wrong layer, and a rule that would have to be rewritten for every tool that
+returns a ranked list. It is out of scope, and it becomes an M8 metric instead:
+redundant retrieval rate, measured as calls whose results add no document the
+context did not already hold.
+
+**The taxonomy is declared on the type.**
+Every `ToolOutcome` carries `model_visible` and `is_error` as class attributes,
+so which failures count towards strikes is answered by reading a class rather
+than by finding a list inside the policy. Harness-fatal failures are exceptions
+and never become outcomes at all, which is why every member is model-visible: a
+reader can tell the class of a failure from its type, and a test asserts that
+every subclass is visible. The sanitizer likewise reads `envelope_key` from the
+outcome instead of testing types it would have to be kept in step with by hand.
+
+**`submit_final_answer` is a registered tool, not a special case in the loop.**
+It dispatches like any other tool, so it owes exactly one tool message, and the
+run ends only after every tool message in that turn has been emitted. Ending the
+moment the answer validated would leave its own tool_call.id unanswered in the
+final context -- which `ContextBuilder` refuses to assemble, so the mistake
+surfaces as our error rather than as a 400 on a request that is never made. A
+test constructs exactly that broken context and asserts the guard fires, rather
+than trusting the ordering to stay correct.
+
+Its acknowledgement does not echo the answer back into the context, which would
+double the cost of the answer for no benefit. The validated arguments travel to
+the loop as a return value from `_resolve`, not as a side effect.
+
+Free-text termination stays live because the model may ignore the tool, and a
+harness that only ended runs one way would be measuring its own prompt rather
+than the model. `RunResult.route` records which happened, because the difference
+is an answer with checkable sources against one without, and M8 wants the rate.
+
+**The ceiling did not move, and one thing that is not a condition did.**
+None of the new conditions permits another iteration; they all stop earlier, so
+the worst-case context is still governed by the iteration cap. The sixth tool
+schema is what moved it: the stable prefix went from 1,328 to 1,607 estimated
+tokens, putting the worst case near 4,900 against a 12,000 budget. The backstop
+stays unreachable on purpose, at roughly 2.5x headroom.
+
+The cumulative token budget is 40,000 against a realistic worst case near
+18,000. That is deliberately unreachable, and it is a different thing from the
+dead-code strategy rejected in M3: a budget comparison is two lines whose job is
+to bound the unknown -- a future model that emits far more, or an iteration cap
+someone raises -- where a context-dropping strategy was a policy with behaviour
+that could never be exercised honestly.
+
+**Cited sources are validated against the ids the run actually issued.**
+The M4 smoke run called `submit_final_answer` with
+`"sources": ["call_1","call_2","call_3","call_4","call_5"]`. None of those
+existed; the real ids were opaque 29-character strings like
+`call_zifRdEXzJ0tuCpNZZnnM7oEI`. The field was being generated in a plausible
+shape rather than reported from the conversation, which would have let M8 score
+grounding against fabricated data -- the metric would have looked healthy while
+measuring nothing.
+
+Worth recording precisely: the invented ids matched `call_1`, `call_2`, ... --
+exactly the pattern `tests/conftest.py` uses for scripted calls. That is not
+imitation of our fixtures, which the model never sees. It suggests `call_N` is
+simply the default shape of this hallucination, which means any harness that
+trusts model-supplied ids is exposed to the same failure, and that our test
+fixtures were unwittingly modelling the bug rather than the reality. The
+fixtures cited `call_1` too, and the new validation caught them.
+
+Unknown ids are rejected as `InvalidArguments`, naming the ids the model may
+cite, and the run continues so the model can correct itself. They are not
+silently dropped: an answer whose sources were quietly emptied looks exactly
+like an answer that needed to cite nothing, which is the same problem wearing a
+different hat.
+
+**Structural versus contextual argument validation.**
+This is the first constraint in the project that a schema cannot express. Every
+rule the args models enforce is structural -- it depends only on the shape, so a
+value is valid on its own terms and pydantic can decide it in isolation. Whether
+`call_1` is a valid source depends on what happened earlier in this run.
+Putting it in a pydantic validator would mean giving the args model access to
+run state, which makes the model non-reusable and the schema a liar: the
+generated JSON schema would advertise a constraint it does not describe.
+
+So it lives in `validator.py` as a separate function called by the loop after
+the schema passes and before the tool executes, and `ContextBuilder` supplies
+the authority -- it knows which ids it issued because it wrote them. The trust
+boundary is unchanged and the layering is explicit: shape first, then context,
+then execution.
+
+**Calibration drift, second measurement.**
+Estimated 1,607 against 1,545 reported: 4.0% high, inside the band and still on
+the conservative side. The tool-schema correction factor of 0.85 is holding
+across a change in the tool set, which is mild evidence it reflects a real
+property of how the API bills schemas rather than a fit to one payload.
+
+Strengthening the sources description immediately afterwards added about 34
+tokens, so 1,545 no longer describes the current prefix and the calibration test
+fails at 6.2% until the next smoke run. That is the guard working as designed,
+and the number stays as measured rather than being adjusted to fit.
+
+**A stronger field description changed the shape of the hallucination, not the rate.**
+After the sources description was rewritten to say the ids are long opaque
+strings that must be copied exactly and never invented or renumbered, the next
+run fabricated again -- five UUIDs instead of `call_1`..`call_5`. The
+instruction was followed in form and ignored in substance: the model produced
+something that looked more like what it had been told to produce, and was no
+more real.
+
+This is worth having written down because it settles which mechanism is
+load-bearing. The description is not doing the work; the validation is. A prompt
+edit that changes the format of a fabrication without reducing its frequency is
+evidence that the behaviour is not prompt-addressable, and it is a concrete
+answer to "why not just tell the model not to?" -- we did, twice, and it
+complied cosmetically both times.
+
+**The real cause was a context-engineering gap, not a prompting one.**
+The model had never seen a tool_call_id. They exist only in protocol fields --
+`tool_calls[].id` going out, `tool_call_id` coming back -- which are message
+structure rather than content. Asking a model to cite an identifier it has never
+been shown is asking it to guess a format, and it guessed twice, differently.
+
+The fix is to put the id in the envelope, beside the tool name and the result,
+where it is readable text:
+`{"tool":"get_physician_profile","tool_call_id":"call_IiXwe...","result":{...}}`.
+Same for the error envelope. This changes the tool-message format, so the
+sanitizer tests compare against the new shape.
+
+Note the ordering of the three attempts, because it is the general lesson: the
+prompt instruction failed, the validation caught the failure honestly, and the
+context change addressed the cause. Prompting was the weakest of the three and
+was tried first.
+
+**The run that failed was the better outcome, and is recorded as evidence.**
+Presented with a citation it could not verify, the harness rejected it and the
+run ended with no answer rather than recording a confident answer supported by
+five invented ids. An unusable honest result beats a plausible fabricated one,
+and this is what the trust boundary is for: not preventing the model from being
+wrong, but preventing wrongness from being recorded as fact. M8's grounding
+metric would otherwise have scored this run well.
+
+**The iteration cap is 8, because 6 made recovery impossible.**
+The hardest smoke goal needs five gathering iterations plus one to submit --
+exactly the old cap. That left zero headroom, so every recovery path the error
+taxonomy provides was unreachable on the case that needs it most: a rejected
+citation, a validation failure or a repeat each guaranteed MAX_ITERATIONS with
+no answer. A cap that makes recovery impossible is not a safety mechanism, it is
+a second failure mode.
+
+Ceiling re-measured at eight, with realistic text rather than filler (a first
+attempt using repeated "x" understated it badly -- a long run of one character
+tokenises far more efficiently than prose, and the simulation was measuring the
+tokeniser rather than the harness):
+
+  prefix                       1,641
+  worst context at 8 iters     6,289   against a 12,000 context budget
+  growth per iteration           581
+  cumulative run tokens       ~32,600  against what was a 40,000 run budget
+
+The context budget stays comfortably unreachable at 1.9x. The run token budget
+did not: 40,000 left only 1.2x headroom, close enough that a legitimately hard
+run could trip it, and a backstop that ends good runs is a working constraint
+wearing a backstop's name. Raised to 65,000, restoring roughly 2x.
+
+The reason the increase is not proportional is worth stating: raising the cap
+from six to eight is 33% more iterations but 55% more tokens, because every
+iteration re-sends the entire context. Iteration cost is quadratic in the cap,
+not linear, which is also why the cap is the right place to bound cost and the
+token budget is only the backstop behind it.

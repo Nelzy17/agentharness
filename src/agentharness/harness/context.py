@@ -21,9 +21,9 @@ from agentharness.harness.model_client import AssistantMessage, HarnessFatalErro
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 
-# Six iterations against results capped at 2,000 characters puts the worst
-# context this harness can assemble at roughly 4,500 tokens. The budget is a
-# backstop that proves the bound, not a working constraint.
+# Measured, at the M4 iteration cap of eight and with every result at the 2,000
+# character cap, the largest context this harness can assemble is 6,289 tokens.
+# The budget is a backstop that proves the bound, not a working constraint.
 MAX_CONTEXT_TOKENS = 12_000
 
 # Fixed rather than derived from the model name. tiktoken raises on identifiers
@@ -130,6 +130,18 @@ class ContextBuilder:
     def add_tool_result(self, tool_call_id: str, content: str) -> None:
         self._messages.append(
             {"role": "tool", "tool_call_id": tool_call_id, "content": content}
+        )
+
+    def answered_tool_call_ids(self) -> frozenset[str]:
+        """Every tool_call_id this context has answered.
+
+        The harness knows these because it built them. That is what makes them
+        usable as the authority against which a model-supplied id is checked.
+        """
+        return frozenset(
+            message["tool_call_id"]
+            for message in self._messages
+            if message["role"] == "tool"
         )
 
     def token_count(self) -> int:

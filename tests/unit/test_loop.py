@@ -5,7 +5,8 @@ from dataclasses import replace
 
 import pytest
 
-from agentharness.harness.loop import AgentLoop, TerminalReason
+from agentharness.harness.loop import AgentLoop
+from agentharness.harness.policy import TerminalReason
 from agentharness.harness.registry import ToolRegistry, build_registry
 from agentharness.tools.definitions import TOOL_SPECS
 from tests.conftest import (
@@ -226,13 +227,15 @@ def test_every_tool_call_is_answered_exactly_once_whatever_the_outcome():
 # --- termination --------------------------------------------------------------
 
 def test_the_iteration_cap_ends_the_run_without_raising():
+    # Different arguments each time: an identical call three times would trip
+    # repeat detection first, which is a different condition with its own test.
     script = [
         assistant_tool_calls(
-            ("get_open_followups", {"physician_name": "Raj Patel"}),
+            ("get_open_followups", {"physician_name": name}),
             content=f"still working, pass {index}",
             id_prefix=f"i{index}",
         )
-        for index in range(1, 4)
+        for index, name in enumerate(["Raj Patel", "Evelyn Chen", "Sofia Lindqvist"], 1)
     ]
     loop, client = build_loop(script, max_iterations=3)
     result = loop.run(GOAL)

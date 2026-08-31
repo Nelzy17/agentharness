@@ -112,9 +112,9 @@ def test_arguments_that_are_not_an_object_are_a_validation_failure(validator):
 def test_unknown_tool_name_lists_every_valid_name(validator):
     outcome = validator.validate("get_physician", {"physician_name": "x"})
     assert isinstance(outcome, UnknownTool)
-    assert set(outcome.valid_names) == set(VALID_ARGS)
+    assert set(outcome.valid_names) == set(build_registry().names())
     message = outcome.payload()
-    assert all(name in message for name in VALID_ARGS)
+    assert all(name in message for name in build_registry().names())
 
 
 # --- the message the model actually reads ------------------------------------

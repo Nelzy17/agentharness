@@ -17,6 +17,10 @@ from agentharness.tools.definitions import ToolSpec
 # the message is tested against.
 MAX_DETAIL_LENGTH = 200
 
+# Enough unknown ids to show the model the pattern of its mistake without
+# spending the message on a list it does not need to read in full.
+MAX_REPORTED_UNKNOWN = 3
+
 
 @dataclass(frozen=True)
 class ValidatedCall:
@@ -75,3 +79,41 @@ def _compact(error: ValidationError) -> str:
     if len(message) > MAX_DETAIL_LENGTH:
         message = f"{message[: MAX_DETAIL_LENGTH - 3]}..."
     return message
+
+
+def validate_sources(
+    tool_name: str, sources: list[str], issued_ids: frozenset[str]
+) -> InvalidArguments | None:
+    """Check cited tool_call ids against the ids this run actually issued.
+
+    This is a second kind of argument validation, and the distinction is worth
+    naming. Everything the args models enforce is *structural*: it depends only
+    on the schema, so a value is valid or not on its own terms and pydantic can
+    decide it. This is *contextual*: whether 'call_x' is a valid source depends
+    on what happened earlier in this run, which no schema can know. It therefore
+    cannot live in the args model, and it runs here, after the schema has passed
+    and before the tool executes.
+
+    The trust-boundary principle is unchanged. An id the model emits is
+    untrusted until checked against something the harness knows -- and the
+    harness knows exactly which ids it issued.
+
+    Unknown ids are rejected rather than dropped. Silently emptying the list
+    would leave an answer that cites nothing looking like an answer that needed
+    to cite nothing, which is the same failure wearing a different hat.
+    """
+    unknown = [source for source in sources if source not in issued_ids]
+    if not unknown:
+        return None
+
+    shown = ", ".join(f"'{source}'" for source in unknown[:MAX_REPORTED_UNKNOWN])
+    if len(unknown) > MAX_REPORTED_UNKNOWN:
+        shown += f" and {len(unknown) - MAX_REPORTED_UNKNOWN} more"
+    citable = ", ".join(sorted(issued_ids)) if issued_ids else "none yet"
+    return InvalidArguments(
+        name=tool_name,
+        message=(
+            f"sources cites {shown}, which this conversation never issued. "
+            f"Cite only these ids, copied exactly: {citable}."
+        ),
+    )

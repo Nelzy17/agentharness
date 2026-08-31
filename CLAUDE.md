@@ -26,7 +26,7 @@ The owner is building this to be able to explain agentic AI engineering in an in
 
 Python 3.12+, FastAPI, Pydantic v2, OpenAI SDK, `sqlite3` (stdlib, no ORM), pytest, tiktoken, PyYAML. Nothing else without explicit approval.
 
-## Tools (five, final)
+## Tools (five domain tools, final, plus one control tool)
 
 | Tool | Permission |
 |---|---|
@@ -35,6 +35,13 @@ Python 3.12+, FastAPI, Pydantic v2, OpenAI SDK, `sqlite3` (stdlib, no ORM), pyte
 | `get_open_followups` | READ |
 | `search_product_docs` | READ |
 | `create_followup` | WRITE |
+| `submit_final_answer` | CONTROL |
+
+The five domain tools are final. `submit_final_answer` is not one of them: it
+touches no records, ends the run, and carries the answer with its `sources` and
+`insufficient_information`, which is what makes grounding measurable in M8. A
+free-text answer with no tool call still terminates the run — that path stays
+live because the model may ignore the tool — but records no sources.
 
 `search_product_docs` is substring matching over eight markdown files, permanently. Do not improve it, add embeddings, or introduce a vector store. Its jobs are to be the prompt-injection surface and the zero-results path.
 

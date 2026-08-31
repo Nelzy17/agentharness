@@ -26,6 +26,9 @@ EXPECTED_NAMES = [
     "get_open_followups",
     "search_product_docs",
     "create_followup",
+    # Five domain tools plus one control tool, which ends the run rather than
+    # touching data. See CLAUDE.md's tool table.
+    "submit_final_answer",
 ]
 
 
@@ -34,7 +37,7 @@ def registry() -> ToolRegistry:
     return build_registry()
 
 
-def test_exactly_five_tools_are_registered(registry):
+def test_exactly_six_tools_are_registered(registry):
     assert registry.names() == EXPECTED_NAMES
 
 

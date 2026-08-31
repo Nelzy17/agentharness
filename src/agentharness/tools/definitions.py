@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentharness.tools.control import submit_final_answer
 from agentharness.tools.docs import search_product_docs
 from agentharness.tools.followups import create_followup, get_open_followups
 from agentharness.tools.meetings import get_previous_meetings
@@ -24,6 +25,9 @@ from agentharness.tools.physician import get_physician_profile
 class Permission(enum.Enum):
     READ = "read"
     WRITE = "write"
+    # Ends the run rather than touching data. Kept distinct so that "which
+    # tools write" stays a question about records.
+    CONTROL = "control"
 
 
 # Field descriptions are read by the model when it decides how to call a tool,
@@ -98,6 +102,36 @@ class CreateFollowupArgs(BaseModel):
             "the date the user gave. If the user gave none, ask for one rather than "
             "inventing a date."
         ),
+    )
+
+
+class SubmitFinalAnswerArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(
+        description=(
+            "Your complete answer to the user, in prose. Everything in it must "
+            "come from a tool result listed in sources. If you could not find "
+            "what was asked for, say so here plainly rather than filling the gap."
+        )
+    )
+    sources: list[str] = Field(
+        description=(
+            "The tool_call_id of every tool result you relied on. Copy each id "
+            "exactly as it appears on the tool messages in this conversation. "
+            "They are long opaque strings, not sequential numbers: do not "
+            "invent, renumber or abbreviate them. Ids that were not issued in "
+            "this conversation are rejected and you will be asked again. Leave "
+            "the list empty only if you called no tools or relied on none."
+        )
+    )
+    insufficient_information: bool = Field(
+        description=(
+            "True if the tools did not return what was needed to answer "
+            "properly -- an unknown physician, no meetings on record, no "
+            "documentation on the subject. Set it honestly: an answer marked "
+            "complete when it is not is worse than one that admits the gap."
+        )
     )
 
 
@@ -252,5 +286,20 @@ TOOL_SPECS: list[ToolSpec] = [
         args_model=CreateFollowupArgs,
         permission=Permission.WRITE,
         function=create_followup,
+    ),
+    ToolSpec(
+        name="submit_final_answer",
+        description=(
+            "Submit your answer and end the run. Call this once, when you have "
+            "what the question needs -- not after every tool call, and not "
+            "before you have looked. List in sources the tool_call_id of every "
+            "result you used, and set insufficient_information when the tools "
+            "did not return what was needed. This is how a run finishes: an "
+            "answer written as ordinary text instead will be taken as final but "
+            "records no sources."
+        ),
+        args_model=SubmitFinalAnswerArgs,
+        permission=Permission.CONTROL,
+        function=submit_final_answer,
     ),
 ]

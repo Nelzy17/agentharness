@@ -12,7 +12,7 @@ though the harness had said it.
 
 import json
 
-from agentharness.harness.outcomes import ToolOutcome, ToolSucceeded
+from agentharness.harness.outcomes import ToolOutcome
 
 # The largest healthy result the fixtures produce is about 1,540 characters, so
 # ordinary traffic passes through untouched and this bounds the pathological
@@ -31,17 +31,28 @@ TRUNCATION_NOTE = (
 )
 
 
-def sanitize(outcome: ToolOutcome) -> str:
+def sanitize(outcome: ToolOutcome, tool_call_id: str) -> str:
     """Render one outcome as the content of its tool message.
 
     One construction path for every outcome, always through json.dumps, so
     every value is escaped whether or not the harness believes it is trusted.
     The alternative -- composing the trusted cases by string -- is an invariant
     that has to be re-derived correctly by whoever adds the next member.
+
+    The tool_call_id is in the envelope because the model otherwise never sees
+    one. Ids live in protocol fields -- tool_calls[].id on the way out,
+    tool_call_id on the way back -- which are not content, so a model asked to
+    cite them has only ever been able to guess at the format. Putting the id in
+    the body makes it readable text rather than metadata.
     """
     payload = outcome.payload()
-    key = "result" if isinstance(outcome, ToolSucceeded) else "error"
-    envelope: dict[str, object] = {"tool": outcome.tool_name[:MAX_TOOL_NAME_CHARS]}
+    # The outcome declares which it is. Testing types here would mean keeping a
+    # list of classes in step with the union by hand.
+    key = outcome.envelope_key
+    envelope: dict[str, object] = {
+        "tool": outcome.tool_name[:MAX_TOOL_NAME_CHARS],
+        "tool_call_id": tool_call_id,
+    }
 
     if len(payload) > MAX_PAYLOAD_CHARS:
         # Kept as an escaped string under a different key. The model cannot

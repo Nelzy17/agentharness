@@ -150,16 +150,17 @@ def test_the_count_grows_with_the_conversation():
 # of the goal below reported this many prompt tokens. The three inputs to that
 # number are pinned underneath, so a change to any of them fails here by name
 # rather than surfacing later as unexplained token drift.
-REPORTED_FIRST_CALL_PROMPT_TOKENS = 1300
+REPORTED_FIRST_CALL_PROMPT_TOKENS = 1585
 SMOKE_GOAL = "Prepare me for tomorrow's meeting with Dr. Evelyn Chen about Nexovar."
 SYSTEM_PROMPT_SHA256 = "e142c4ee5c8ceedccea28b5d447e670cd415f9bb80be282089cb87065617b1df"
-TOOL_DEFINITIONS_SHA256 = "8fcbc5083b3d2504df794969444a34c5dfab2e7e7c4eade4bb5547e695356386"
+TOOL_DEFINITIONS_SHA256 = "f85afdce58ae42bb13147240597cca72fcb1fefb970becdb9b40507a2a88adb1"
 TOOL_NAMES = [
     "create_followup",
     "get_open_followups",
     "get_physician_profile",
     "get_previous_meetings",
     "search_product_docs",
+    "submit_final_answer",
 ]
 
 
