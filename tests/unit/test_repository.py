@@ -3,6 +3,9 @@
 import pytest
 
 from agentharness.domain import repository
+from agentharness.domain.models import WriteAttribution
+
+ATTRIBUTION = WriteAttribution(run_id="test-run", tool_call_id="call_test")
 
 
 @pytest.fixture(autouse=True)
@@ -77,13 +80,13 @@ def test_unknown_name_is_neither_found_nor_ambiguous():
 
 
 def test_reset_discards_in_process_writes():
-    repository.append_followup("phy-003", "temporary", "2026-09-01")
+    repository.append_followup("phy-003", "temporary", "2026-09-01", ATTRIBUTION)
     assert len(repository.open_followups_for("phy-003")) == 1
     repository.reset()
     assert repository.open_followups_for("phy-003") == []
 
 
 def test_appended_followup_ids_do_not_collide():
-    first = repository.append_followup("phy-003", "one", "2026-09-01")
-    second = repository.append_followup("phy-003", "two", "2026-09-02")
+    first = repository.append_followup("phy-003", "one", "2026-09-01", ATTRIBUTION)
+    second = repository.append_followup("phy-003", "two", "2026-09-02", ATTRIBUTION)
     assert (first.followup_id, second.followup_id) == ("fu-006", "fu-007")

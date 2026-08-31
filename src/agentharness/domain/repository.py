@@ -16,6 +16,7 @@ from agentharness.domain.models import (
     Meeting,
     Physician,
     Product,
+    WriteAttribution,
 )
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -145,11 +146,19 @@ def documents(product_name: str | None = None) -> list[Document]:
     return [document for document in _documents if document.product == product_name]
 
 
-def append_followup(physician_id: str, description: str, due_date: str) -> Followup:
+def append_followup(
+    physician_id: str,
+    description: str,
+    due_date: str,
+    attribution: WriteAttribution,
+) -> Followup:
     """Append a follow-up to the in-memory store and return it.
 
-    Append-only by design: there is no update and no delete anywhere in this
-    module. Run attribution and the per-run write cap arrive in M6.
+    Attribution is required rather than optional. Writes execute without a human
+    saying yes, so the answer to "what stops this putting nonsense in a
+    physician's record" is bounded blast radius plus the ability to undo it --
+    and undoing requires knowing which run did what. A signature that allowed an
+    unattributed write would leave a record nothing could reverse.
     """
     next_number = 1 + max(
         int(followup.followup_id.rsplit("-", 1)[1]) for followup in _followups
@@ -160,9 +169,41 @@ def append_followup(physician_id: str, description: str, due_date: str) -> Follo
         description=description,
         due_date=due_date,
         status="open",
+        created_by_run_id=attribution.run_id,
+        created_by_tool_call_id=attribution.tool_call_id,
     )
     _followups.append(followup)
     return followup
+
+
+def revoke_run(run_id: str) -> list[str]:
+    """Remove every follow-up created by one run. Returns the ids removed.
+
+    This is the mechanism that makes "reversible" true rather than aspirational,
+    and it is the only removal in this module. It is scoped by construction: a
+    run_id that matches nothing removes nothing, and fixture records carry no
+    attribution at all, so they cannot be reached by any run_id whatsoever.
+
+    The empty run_id is refused. Falsy input reaching a filter is the classic
+    way a scoped delete becomes an unscoped one, and this is the wrong function
+    to discover that in.
+    """
+    global _followups
+    if not run_id:
+        raise ValueError("revoke_run needs a run_id; refusing to match on nothing")
+    removed = [
+        followup.followup_id
+        for followup in _followups
+        if followup.created_by_run_id == run_id
+    ]
+    _followups = [
+        followup for followup in _followups if followup.created_by_run_id != run_id
+    ]
+    return removed
+
+
+def all_followups() -> list[Followup]:
+    return list(_followups)
 
 
 def all_physicians() -> list[Physician]:

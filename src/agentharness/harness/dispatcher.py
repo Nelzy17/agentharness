@@ -7,15 +7,33 @@ come through the validator first.
 import logging
 import traceback
 
+from agentharness.domain.models import WriteAttribution
+from agentharness.harness.model_client import HarnessFatalError
 from agentharness.harness.outcomes import ToolFailed, ToolOutcome, ToolSucceeded
 from agentharness.harness.validator import ValidatedCall
+from agentharness.tools.definitions import Permission
 
 logger = logging.getLogger(__name__)
 
 
-def dispatch(call: ValidatedCall) -> ToolOutcome:
+def dispatch(call: ValidatedCall, attribution: WriteAttribution | None = None) -> ToolOutcome:
+    """Run one validated call, supplying attribution to the tools that write.
+
+    One declaration -- permission=WRITE on the spec -- drives schema generation,
+    the policy check, the trace flag and this. A write dispatched without
+    attribution is a harness bug rather than a model error, so it raises here
+    instead of producing an unattributable record.
+    """
+    arguments = call.args.model_dump()
+    if call.spec.permission is Permission.WRITE:
+        if attribution is None:
+            raise HarnessFatalError(
+                f"{call.spec.name} writes and was dispatched without attribution"
+            )
+        arguments["attribution"] = attribution
+
     try:
-        result = call.spec.function(**call.args.model_dump())
+        result = call.spec.function(**arguments)
     except Exception:
         # A tool raising is a bug. M0 made every expected condition -- missing
         # physician, empty history, no matching documents -- a structured

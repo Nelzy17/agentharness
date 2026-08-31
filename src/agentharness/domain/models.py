@@ -7,7 +7,7 @@ models in M1 rather than here.
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Physician(BaseModel):
@@ -36,7 +36,30 @@ class Meeting(BaseModel):
     open_questions: list[str]
 
 
+class WriteAttribution(BaseModel):
+    """Which run and which tool call produced a record.
+
+    Supplied by the harness, never by the model: it is not a field of any args
+    model, so there is no path by which a model could claim a run_id that is not
+    its own. It lives here rather than in harness/ because the domain already
+    knows about attribution -- Followup has carried the columns since M0 -- and
+    because tools/ importing harness/ would invert the dependency.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    tool_call_id: str
+
+
 class Followup(BaseModel):
+    # Frozen because this is the only record the agent can create, so "can it be
+    # modified after the fact" is a live question rather than a hypothetical.
+    # Mutating a stored follow-up now raises at the attribute set, which makes
+    # "append-only, no update" a property of the type rather than an absence
+    # someone has to go looking for in the repository.
+    model_config = ConfigDict(frozen=True)
+
     followup_id: str
     physician_id: str
     description: str

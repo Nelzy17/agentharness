@@ -215,6 +215,25 @@ def test_every_terminal_reason_is_reachable():
         .terminal_reason
     )
 
+    produced.add(
+        run_with(
+            [
+                assistant_tool_calls(
+                    (
+                        "create_followup",
+                        {
+                            "physician_name": "Raj Patel",
+                            "description": f"note {index}",
+                            "due_date": "2026-09-15",
+                        },
+                    ),
+                    id_prefix=f"w{index}",
+                )
+                for index in range(1, 4)
+            ]
+        )[0].terminal_reason
+    )
+
     # The fatal path does not return a RunResult -- it records and re-raises --
     # so its reason is collected from the trace instead.
     from agentharness.harness.model_client import HarnessFatalError

@@ -59,6 +59,39 @@ Every model call and tool call, with durations, token counters including cache
 reads and writes, the outcome class of each call, and the human-readable reason
 the run stopped.
 
+## Autonomous writes
+
+Writes execute without a human confirming them, because autonomous action is
+the point of the project. That removes the usual answer to "what stops it
+writing nonsense into a physician's record", so four mechanisms carry it
+instead:
+
+- **one write tool**, `create_followup`, and no other
+- **append-only**: `Followup` is a frozen model, so a stored record cannot be
+  modified, and the repository has exactly one removal
+- **a cap of two writes per run**, counting attempts rather than successes, so a
+  write the domain rejects is not free; exceeding it ends the run with its own
+  terminal reason
+- **complete attribution**: every record carries the `run_id` and
+  `tool_call_id` that produced it, supplied by the dispatcher and absent from
+  the schema the model sees, so it cannot be forged
+
+Reversal is `repository.revoke_run(run_id)`, which removes exactly that run's
+records and returns their ids. It is a function rather than a CLI on purpose:
+domain data is held in memory, so a separate process would load the fixtures,
+match nothing and report success while deleting nothing -- and a reversal path
+that appears to work and does not is the worst available failure here, given
+that reversibility is what replaced human approval.
+
+### At production scale
+
+Follow-ups would be rows rather than an in-memory list, and reversal would be
+`DELETE FROM followups WHERE created_by_run_id = ?`. The shape of the answer is
+identical -- scoped by run, unable to reach records that carry no attribution --
+and only the storage differs. That substitution is a change to
+`domain/repository.py` and to nothing else, which is the whole reason every
+tool goes through it.
+
 ## Running the tests
 
 ```

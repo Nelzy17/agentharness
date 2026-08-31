@@ -16,9 +16,11 @@ from agentharness.harness.context import (
 )
 from agentharness.harness.dispatcher import dispatch
 from agentharness.harness.model_client import HarnessFatalError, TokenUsage, ToolCall
+from agentharness.domain.models import WriteAttribution
 from agentharness.harness.outcomes import (
     DuplicateResult,
     InvalidArguments,
+    PermissionDenied,
     RepeatedCall,
     ToolFailed,
     ToolOutcome,
@@ -229,7 +231,7 @@ class AgentLoop:
             resolutions: list[Resolution] = []
             for call in response.message.tool_calls:
                 tool_started = self._clock()
-                resolution = self._resolve(call, termination, issued)
+                resolution = self._resolve(call, termination, issued, run_id)
                 self._trace_tool_call(
                     run_id, iteration, call, resolution, self._elapsed_ms(tool_started)
                 )
@@ -267,6 +269,7 @@ class AgentLoop:
         call: ToolCall,
         termination: TerminationPolicy,
         issued_ids: frozenset[str],
+        run_id: str,
     ) -> Resolution:
         """One tool call, from raw model output to something the model can read.
 
@@ -321,7 +324,26 @@ class AgentLoop:
                 arguments_json,
             )
 
-        outcome = dispatch(validated)
+        if validated.spec.permission is Permission.WRITE and not termination.record_write_attempt():
+            # Checked after the repeat check, so a call that will not execute
+            # cannot spend write budget, and before dispatch, so one that will
+            # execute always does -- including one the domain then rejects.
+            return Resolution(
+                PermissionDenied(
+                    name=call.name,
+                    reason=(
+                        f"this run has already made its limit of "
+                        f"{termination.max_writes} writes, so nothing was created"
+                    ),
+                ),
+                None,
+                arguments_json,
+            )
+
+        outcome = dispatch(
+            validated,
+            attribution=WriteAttribution(run_id=run_id, tool_call_id=call.id),
+        )
         termination.record_call(call.name, raw_args, call.id, outcome.payload())
 
         final = validated.args if call.name == FINAL_ANSWER_TOOL else None

@@ -794,3 +794,135 @@ swap back to `monotonic` fails there rather than in a trace nobody re-reads.
 Same shape as the renderer's UnicodeEncodeError one milestone earlier: both were
 found by running the thing rather than by testing it, and both were invisible to
 tests that exercised the code without exercising the environment.
+
+---
+
+## M6 — write policy and write safety
+
+**The answer to "what stops it writing nonsense", stated as four mechanisms.**
+Nobody approves a write, so the answer cannot be approval. It is: exactly one
+write tool; append-only, enforced by a frozen model rather than by the absence
+of an update function; a cap of two per run that counts attempts; and complete
+attribution, which makes any run's effects findable and removable. Each is a
+test rather than a claim.
+
+**Append-only is a property of the type.**
+`Followup` is `frozen=True`, so mutating a stored record raises at the attribute
+set. That is a better guarantee than "there is no update function", which is an
+absence someone has to go looking for and which a future helper could quietly
+end. The AST assertion over `repository.py` remains as a backstop -- parsed
+rather than grepped, so a comment mentioning deletion does not fail it and a
+`del` inside a comprehension does not pass it.
+
+**Attribution is supplied by the dispatcher and absent from the schema.**
+`WriteAttribution` is not a field of `CreateFollowupArgs`, so there is no path by
+which a model could claim a run_id that is not its own -- the same reasoning as
+cited sources one layer down. The dispatcher supplies it for any spec declaring
+`permission=WRITE` and raises if it is missing, which makes an unattributed
+write impossible rather than discouraged. `append_followup` requires it
+positionally, so no signature in the codebase can produce an orphan record; the
+M0 tests that write directly were updated to pass one, which is the point.
+
+One declaration now drives four things: the generated schema, the policy check,
+the trace's `is_write` flag, and attribution. That is the payoff for putting
+permission on the spec in M1 rather than inferring it from the tool's name.
+
+**The cap counts attempts, and the boundary is execution.**
+A write the domain rejects -- ambiguous physician, unknown name -- has spent an
+attempt, because otherwise a model that cannot get the name right retries
+without limit and the cap bounds nothing. Two things deliberately do not count.
+A call rejected by schema validation never reached the check: it costs an error
+strike instead, and a mistyped date should not consume write budget. An
+identical repeat returns its earlier result without running, so it provably
+cannot create a record. The line is "did this call attempt to execute", which is
+also where the check sits in the code.
+
+Exceeding the cap produces `PermissionDenied` -- the first live path for that
+outcome, which until now existed only as the visible seam of the authorization
+boundary -- and sets a flag so `check()` terminates at the top of the next
+iteration with `WRITE_CAP_EXCEEDED`. The denial is still a tool message emitted
+before the run ends: rule 3 does not bend for the cap.
+
+**Policy answers a different question from TerminationPolicy.**
+`Policy` is stateless and frozen and answers "is this kind of action allowed at
+all" -- the authorization mode. `TerminationPolicy` holds per-run counters and
+answers "has this run done too much of it". The cap is the second question, so
+it lives with the other counters rather than with the mode.
+
+**Reversal is a function, and deliberately not a CLI.**
+Domain data is held in memory, so a `python -m agentharness.cli.revert` would
+load the fixtures in a fresh process, match nothing, and report success while
+deleting nothing. Reversibility is the mechanism that replaced human approval,
+so a reversal path that appears to work and does not is the worst available
+failure in this milestone -- worse than not having one, because the absence is
+at least honest.
+
+`revoke_run` refuses a falsy run_id rather than filtering on it. Falsy input
+reaching a scoped delete is the classic way it becomes an unscoped one, and this
+is the wrong function in which to discover that. Fixtures carry no attribution
+at all, so no run_id can reach them by any route. Both the no-match case and the
+zero-writes case are tested directly rather than reasoned about from the filter.
+
+At production scale follow-ups are rows and reversal is
+`DELETE FROM followups WHERE created_by_run_id = ?`: identical in shape, scoped
+the same way, differing only in storage. That substitution touches
+`domain/repository.py` and nothing else, which is what rule 9 was for.
+
+**Undoing a run's effects does not erase the record of it.**
+`revoke_run` removes the follow-ups; the trace keeps the write step, its
+attribution and its `is_write` flag. Auditability and reversibility are separate
+properties, and a reversal that also deleted the evidence would give up the
+first to deliver the second.
+
+**The contrast that says what a schema is actually for.**
+Two required fields, the same pressure, opposite outcomes.
+
+`due_date` is required *and* format-constrained: `pattern=^\d{4}-\d{2}-\d{2}$`,
+with a description saying to use the date the user gave and to ask rather than
+invent one. Asked to create a follow-up with no date supplied, the model asked
+"What date is this follow-up due?" -- one iteration, no tool calls, no write
+attempted.
+
+`sources` was required and value-unconstrained: a list of strings, with a
+description that asked for real tool_call ids and, after being strengthened,
+insisted on them. The model fabricated twice, in two different formats.
+
+The difference is not whether the field was required. Both were. It is how
+tightly the schema constrains the *value*. `due_date` has a shape the model can
+check its own output against, and when it had nothing that fit, the cheapest
+correct move was to ask. `sources` had no such shape -- any list of strings
+satisfies it -- so producing something plausible cost nothing and satisfied the
+schema completely.
+
+That makes tight schemas a fabrication-resistance mechanism and not only a
+validation one. A constraint the model can evaluate against its own draft
+changes what it generates; a constraint that only the harness can evaluate
+changes only what the harness accepts. Both are worth having, and they are doing
+different jobs. Where a value cannot be constrained structurally -- and
+tool_call ids cannot, since any string is shaped like one -- the contextual
+check is not a backstop, it is the only mechanism, which is why the M4
+validation is load-bearing and the description is not.
+
+Related, and stated in "Prompts express intent; mechanisms enforce it": the
+prompt is where the intent is stated, the schema is where it can be enforced
+cheaply, and the validator is where it is enforced when the schema cannot.
+
+**M8 requirement: a clarification request is a third outcome, not a completion.**
+That same run terminated `COMPLETED` with `route=FREE_TEXT` and zero tool calls,
+because it asked the user a question. That is correct behaviour -- the date was
+missing and inventing one would have been the failure -- but it is neither task
+completion nor refusal, and scoring it as either would be wrong. Scored as
+completion, a model that asks instead of acting looks successful at a task it
+did not do; scored as failure, a model doing exactly the right thing is
+penalised for it.
+
+M8 needs an eval case whose correct behaviour is a clarification request -- the
+write goal with no date is the obvious one -- and a scorer that distinguishes
+three outcomes rather than two. The observable signature is available already:
+`route=FREE_TEXT` with zero tool calls in the trace, which no completed task
+produces, since completing anything here requires at least one tool call.
+
+No new terminal reason is being added for it now. The distinction is a property
+of what the run did, which the trace already records, rather than of why it
+stopped, and inventing a terminal state to carry an eval concern would put the
+scorer's vocabulary into the harness.

@@ -32,6 +32,12 @@ from agentharness.tools.definitions import Permission, ToolSpec
 MAX_ITERATIONS = 8
 MAX_CONSECUTIVE_ERRORS = 3
 
+# Two records per run. The number is small because it is a blast radius rather
+# than a budget: writes execute with no human saying yes, so the question is not
+# "how many does a reasonable run need" but "how much damage can one run do
+# before something stops it".
+MAX_WRITES_PER_RUN = 2
+
 # The second identical call returns the prior result; the third ends the run.
 MAX_IDENTICAL_CALLS = 3
 
@@ -64,6 +70,7 @@ class TerminalReason(enum.Enum):
     WALL_CLOCK_EXCEEDED = "the run exceeded its wall-clock budget"
     TOKEN_BUDGET_EXCEEDED = "the run exceeded its cumulative token budget"
     NO_PROGRESS = "the model returned neither a tool call nor an answer"
+    WRITE_CAP_EXCEEDED = "the run attempted more writes than it is allowed to make"
     HARNESS_ERROR = (
         "the harness could not continue -- a fault on our side, not the model's"
     )
@@ -117,6 +124,7 @@ class TerminationPolicy:
         max_iterations: int = MAX_ITERATIONS,
         max_consecutive_errors: int = MAX_CONSECUTIVE_ERRORS,
         max_identical_calls: int = MAX_IDENTICAL_CALLS,
+        max_writes: int = MAX_WRITES_PER_RUN,
         wall_clock_seconds: float = WALL_CLOCK_SECONDS,
         token_budget: int = MAX_TOTAL_TOKENS,
         clock: Callable[[], float] = time.monotonic,
@@ -124,6 +132,7 @@ class TerminationPolicy:
         self._max_iterations = max_iterations
         self._max_consecutive_errors = max_consecutive_errors
         self._max_identical_calls = max_identical_calls
+        self.max_writes = max_writes
         self._wall_clock_seconds = wall_clock_seconds
         self._token_budget = token_budget
         self._clock = clock
@@ -135,6 +144,8 @@ class TerminationPolicy:
         self._results: dict[str, str] = {}
         self._repeat_limit_reached = False
         self._no_progress = False
+        self._write_attempts = 0
+        self._write_cap_reached = False
 
     # --- the single decision point -------------------------------------------
 
@@ -148,6 +159,8 @@ class TerminationPolicy:
         """
         if self._no_progress:
             return TerminalReason.NO_PROGRESS
+        if self._write_cap_reached:
+            return TerminalReason.WRITE_CAP_EXCEEDED
         if self._repeat_limit_reached:
             return TerminalReason.REPEATED_CALL
         if self._consecutive_errors >= self._max_consecutive_errors:
@@ -171,6 +184,26 @@ class TerminationPolicy:
             self._consecutive_errors += 1
         else:
             self._consecutive_errors = 0
+
+    def record_write_attempt(self) -> bool:
+        """Count one attempted write. False means it must not be executed.
+
+        Attempts, not successes. A write the domain rejects -- an ambiguous
+        physician, a name that matches nobody -- has still spent one, because
+        otherwise a model that cannot get the name right could retry without
+        limit and the cap would bound nothing.
+
+        The boundary is execution. A call rejected by schema validation never
+        reached here and does not count: it costs an error strike instead, and a
+        mistyped date should not consume write budget. Nor does an identical
+        repeat, which returns its earlier result without running and so cannot
+        create a record.
+        """
+        self._write_attempts += 1
+        if self._write_attempts > self.max_writes:
+            self._write_cap_reached = True
+            return False
+        return True
 
     def record_no_progress(self) -> None:
         self._no_progress = True

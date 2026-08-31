@@ -1,5 +1,9 @@
 from agentharness.domain import repository
-from agentharness.domain.models import CreateFollowupResult, FollowupsResult
+from agentharness.domain.models import (
+    CreateFollowupResult,
+    FollowupsResult,
+    WriteAttribution,
+)
 from agentharness.tools._resolution import ambiguous_message, not_found_message
 
 
@@ -33,8 +37,17 @@ def get_open_followups(physician_name: str) -> FollowupsResult:
 
 
 def create_followup(
-    physician_name: str, description: str, due_date: str
+    physician_name: str,
+    description: str,
+    due_date: str,
+    attribution: WriteAttribution,
 ) -> CreateFollowupResult:
+    """Create one follow-up.
+
+    `attribution` is supplied by the dispatcher, not by the model. It is absent
+    from CreateFollowupArgs on purpose: an attribution the model could set is
+    not attribution.
+    """
     resolution = repository.resolve_physician(physician_name)
     if resolution.ambiguous:
         return CreateFollowupResult(
@@ -48,7 +61,9 @@ def create_followup(
             message=not_found_message("physician", physician_name),
         )
     physician = resolution.match
-    followup = repository.append_followup(physician.physician_id, description, due_date)
+    followup = repository.append_followup(
+        physician.physician_id, description, due_date, attribution
+    )
     return CreateFollowupResult(
         status="ok",
         message=f"Created follow-up {followup.followup_id} for {physician.full_name}, due {followup.due_date}.",
