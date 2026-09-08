@@ -146,14 +146,15 @@ def test_the_count_grows_with_the_conversation():
 
 # --- calibration against the API's own count ----------------------------------
 
-# Observed on the smoke run of 2026-08-31 against gpt-5.6-luna: the first call
+# Observed on the eval sweep of 2026-09-08 against gpt-5.6-luna and gpt-5.6-sol,
+# which both reported 1,651 on all three prepare_chen_nexovar runs: the first call
 # of the goal below reported this many prompt tokens. The three inputs to that
 # number are pinned underneath, so a change to any of them fails here by name
 # rather than surfacing later as unexplained token drift.
-REPORTED_FIRST_CALL_PROMPT_TOKENS = 1585
+REPORTED_FIRST_CALL_PROMPT_TOKENS = 1651
 SMOKE_GOAL = "Prepare me for tomorrow's meeting with Dr. Evelyn Chen about Nexovar."
 SYSTEM_PROMPT_SHA256 = "e142c4ee5c8ceedccea28b5d447e670cd415f9bb80be282089cb87065617b1df"
-TOOL_DEFINITIONS_SHA256 = "f85afdce58ae42bb13147240597cca72fcb1fefb970becdb9b40507a2a88adb1"
+TOOL_DEFINITIONS_SHA256 = "62b27b665cd8f613bd281f324ee3abf250227d04635752f2b842febe16446c7e"
 TOOL_NAMES = [
     "create_followup",
     "get_open_followups",

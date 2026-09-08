@@ -63,9 +63,14 @@ class ScoredRun:
 
 # Which metrics read fields that only exist on the submit-tool route. The
 # aggregator uses this; no metric function needs to know about it.
-READS_SUBMIT_FIELDS = frozenset(
-    {"grounding", "refusal_correctness", "declared_insufficiency"}
-)
+# refusal_correctness no longer reads a submit-tool field: it was the only
+# metric doing so on a criterion basis, and that dependency was the problem.
+READS_SUBMIT_FIELDS = frozenset({"grounding", "declared_insufficiency"})
+
+# Reported, never a pass criterion. The definition is settled; the model's
+# application of it is not, so this is an observation about behaviour rather
+# than a judgement of it.
+OBSERVED_NOT_SCORED = frozenset({"declared_insufficiency"})
 
 
 def tools_used(steps: list[dict[str, Any]]) -> list[str]:
@@ -99,15 +104,26 @@ def opens_with_a_question(answer: str) -> bool:
     return bool(first) and first[0].endswith("?")
 
 
-def refused(result: RunResult, steps: list[dict[str, Any]]) -> bool:
-    """Structural on both routes: nothing retrieved, or insufficiency declared."""
+def refused(result: RunResult, steps: list[dict[str, Any]]) -> bool | None:
+    """Did the run decline? Structural only, or None where nothing structural says.
+
+    This used to fall back to insufficient_information when the run had answered
+    rather than declined. It no longer does: that field is a reported
+    observation and not a criterion, because the model applies it
+    inconsistently to identical input (nexovar_dosing_docs flagged it on two
+    runs of three, zelmarin_docs on one of three). A pass built on a signal
+    documented as unreliable is a pass that means nothing.
+
+    The cost is visible rather than hidden: runs that answered rather than
+    declined now score no refusal-correctness at all, and the metric's `scored`
+    column shrinks to the runs it can actually judge.
+    """
     observed, _ = observed_outcome(result, steps)
     if observed == DECLINED:
         return True
-    return (
-        result.route is FinalAnswerRoute.SUBMIT_TOOL
-        and result.insufficient_information
-    )
+    if observed == ASKED_CLARIFICATION:
+        return False
+    return None
 
 
 def observed_outcome(
@@ -258,8 +274,15 @@ def refusal_correctness(case: dict, result: RunResult, steps: list[dict]) -> Met
     if not case.get("is_refusal_case"):
         return MetricResult(None, "the case does not call for a refusal")
     observed, reason = observed_outcome(result, steps)
+    declined = refused(result, steps)
+    if declined is None:
+        return MetricResult(
+            None,
+            f"observed {observed}: only insufficient_information could decide "
+            "this, and that field is reported rather than scored",
+        )
     return MetricResult(
-        1.0 if refused(result, steps) else 0.0,
+        1.0 if declined else 0.0,
         f"refusal expected; observed {observed} ({reason})",
     )
 

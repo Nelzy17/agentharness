@@ -127,9 +127,14 @@ class SubmitFinalAnswerArgs(BaseModel):
     )
     insufficient_information: bool = Field(
         description=(
-            "True if the tools did not return what was needed to answer "
-            "properly -- an unknown physician, no meetings on record, no "
-            "documentation on the subject. Set it honestly: an answer marked "
+            "True only if a gap stopped you answering the question that was "
+            "asked. An empty result is not itself a gap: if you were asked what "
+            "is on record and the answer is 'nothing', or what documentation "
+            "exists and the answer is 'none', then you have answered the "
+            "question and this stays false. Set it true when something you "
+            "needed could not be found and your answer is therefore incomplete "
+            "-- a physician who does not exist, or documentation that does not "
+            "cover the specific thing you were asked about. An answer marked "
             "complete when it is not is worse than one that admits the gap."
         )
     )

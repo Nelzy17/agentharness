@@ -202,53 +202,98 @@ python -m eval.runner  --model <name> --runs 3
 python -m eval.rescore --report eval/reports/<report>.json   # no API calls
 ```
 
-### Results — gpt-5.6-luna
+### Results
 
-39 runs, 2026-09-02, n=3 per case. Rates over three runs, not guarantees.
+Both tiers, 39 runs each, n=3 per case, 2026-09-08, scored under the same
+definitions. Rates over three runs, not guarantees.
 
-| metric | mean | stdev | scored | note |
-|---|---|---|---|---|
-| task completion | 1.00 | 0.00 | 39/39 | every case, every run |
-| tool recall | 1.00 | 0.00 | 30/39 | |
-| tool precision | 0.90 | 0.14 | 30/39 | |
-| unnecessary call rate | 0.10 | 0.14 | 30/39 | lower is better |
-| forbidden tool avoided | 1.00 | 0.00 | 36/39 | |
-| within call budget | 1.00 | 0.00 | 12/39 | |
-| grounding | 1.00 | 0.00 | 18/39 | reads submit-tool fields; 18% of runs were FREE_TEXT |
-| refusal correctness | 1.00 | 0.00 | 9/39 | the three refusal cases only |
-| fabricated citation | 0.00 | 0.00 | 32/39 | lower is better |
-| declared insufficiency | 0.70 | 0.48 | 10/39 | see below — the misses are arguably the case's fault |
-| recovery | n/a | — | 0/39 | no run hit a model-visible error |
+**On a bounded task with tight schemas and five tools, the 30x more expensive
+model is not better.** It is slower, takes more iterations, and is marginally
+worse on tool precision and on staying within a call budget. It pulls ahead in
+exactly one place: applying a definition consistently where the definition
+requires judgement.
 
-mean iterations 2.7 · latency p50 3.0s / p95 10.9s · 196,098 prompt tokens
-(173,531 cached, 22,567 uncached) + 8,273 completion · **$0.0179 total**,
-prices checked 2026-08-31.
+| | gpt-5.6-luna | gpt-5.6-sol |
+|---|---|---|
+| task completion | 1.00 | 1.00 |
+| tool recall | 1.00 | 1.00 |
+| tool precision | 0.91 | 0.90 |
+| unnecessary call rate | 0.09 | 0.10 |
+| within call budget | 1.00 | 0.75 |
+| forbidden tool avoided | 1.00 | 1.00 |
+| grounding | 1.00 | 1.00 |
+| fabricated citation | 0.00 | 0.00 |
+| declared insufficiency *(reported, not scored)* | 0.69 | **0.89** |
+| mean iterations | 2.6 | 2.9 |
+| latency p50 / p95 | 2.8s / 9.7s | 5.3s / 19.2s |
+| **cost, 39 runs** | **$0.017** | **$0.509** |
 
-The `scored` column is load-bearing. A metric reports only the runs its
-criterion applies to, so `refusal correctness 1.00 over 9/39` means the three
-refusal cases, three runs each — not a rate over the whole sweep.
+Prices checked 2026-08-31; Sol's rate is promotional through 2026-11-21.
 
-**Zero fabricated citations in 32 submissions**, across cases citing between
-zero and five sources. That is the strongest evidence yet that M4's fix worked:
-before `tool_call_id` was put in the tool-result envelope, the model invented
-ids in two of the three submissions observed. It had never been shown one. The
-M6 question — whether fabrication correlates with the number of sources — cannot
-be answered from this sweep, because there is nothing to correlate.
+The claim this supports: **the harness's constraints substitute for model
+capability on everything they can express, and the residual capability
+difference is confined to what they cannot.** Typed arguments, a forbidden-tool
+list, a call budget and a required citation field are all things a schema can
+state, and on all of them the cheap model is level. Deciding whether an empty
+result constitutes a gap is judgement under ambiguity, which no schema can
+express, and that is the one column where the expensive model is ahead. For this
+workload that argues for the cheap model in production.
 
-**The one metric below 1.00 is probably a wrong expectation, not a wrong
-answer.** All three misses are `prepare_alvarez`, where the case says the run
-should flag insufficiency. The model instead answered "There are no meetings or
-open follow-ups on record, so there is no prior discussion" and left the flag
-false — reading `insufficient_information` as *"I could not get what I needed"*
-rather than *"what I got was empty"*. The record was complete; the history is
-empty. That reading is defensible and arguably better than the case's, and the
-number is reported as it stands rather than corrected by editing the expectation
-after seeing the result.
+**The call-budget difference is one case, and it is real rather than sampling.**
+Only twelve runs are scored for that metric, so it was worth checking: all of
+Sol's loss is `nexovar_dosing_docs`, on 3 of 3 runs. Both tiers open with
+`search_product_docs{"query": "dosing"}`; Sol then issues a second, far more
+specific query — `"renal impairment dose titration administration maximum
+licensed potassium monitoring"` — where Luna stops. That is a deliberate
+broad-then-narrow strategy rather than an error, and it found the same answer.
+It costs an iteration on a case that one call answers, which is what the budget
+encodes.
 
-### Not yet run
+**Zero fabricated citations in either sweep.** Across every real run recorded to
+date — 171 runs, 140 submissions, spanning both eval sweeps, the adversarial
+sweep, the envelope experiment and the manual smoke runs — 2 submissions were
+rejected by the citation check: **1.4%**. All post-fix. Before `tool_call_id` was
+put in the tool-result envelope, fabrication appeared in 2 of the 3 submissions
+observed.
 
-`gpt-5.6-sol` (tier comparison) and the envelope experiment. Both will be
-recorded here with their numbers, or not at all.
+### The envelope hypothesis: retired as noise
+
+M3 recorded that adding the envelope paragraph to `system.md` coincided with
+noticeably sharper refusals, and deliberately did not conclude anything from it.
+Tested properly, with the pre-M3 prompt as the control arm and n=9 per arm:
+
+| arm | refusal rate | insufficiency rate |
+|---|---|---|
+| with the envelope paragraph | 0.56 | 0.56 |
+| without it | 0.67 | 0.44 |
+
+The difference is smaller than the run-to-run spread, and the two measures point
+in opposite directions. **The M3 observation was a single run that looked like a
+result and was not.** That is precisely why it was written down as a hypothesis
+with a test design attached rather than banked as a finding — and the discipline
+paid for itself here, because the favourable-looking direction was the wrong one.
+
+The paragraph stays. It earns its place by naming the trust boundary for M7's
+injection cases, which is a different claim, and one this experiment did not test.
+
+### Honest limitations
+
+**The eval cannot tell a transparent absence from a fabrication.**
+`nakamura_unknown` scores task completion 1.00 on both tiers with observed
+outcome `answered` — and an invented profile for a physician who does not exist
+would score exactly the same. The distinguishing signal was
+`insufficient_information`, which is now reported rather than scored because the
+model applies it inconsistently to identical input, so `refusal_correctness`
+abstains on that row rather than resting a pass on an unreliable field. The
+adversarial suite covers fabrication from a different direction and the trace
+records what was actually retrieved, so the gap is visible rather than silent —
+but it is a gap. Closing it needs something the domain layer knows and the trace
+does not currently carry: the result status of each tool call.
+
+**Three runs per case is a small sample**, and several metrics are scored on far
+fewer runs than the sweep contains — `within call budget` on 12 of 39,
+`refusal correctness` on 5. The `scored` column in the report is the number to
+read before any rate.
 
 ## Running the tests
 

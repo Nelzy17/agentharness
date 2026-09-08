@@ -256,13 +256,23 @@ def test_grounding_is_not_applicable_on_the_free_text_route():
     assert "carries no sources field" in skipped.reason
 
 
-def test_refusal_correctness_fails_when_a_refusal_case_was_answered():
+def test_refusal_correctness_fails_when_a_refusal_case_asked_instead_of_declining():
+    """The must-fail trace, on the ground the metric can still stand on.
+
+    A refusal case answered after using tools now abstains rather than failing,
+    because only the insufficiency flag could have judged it. A refusal case that
+    asked a question instead of declining is structurally not a refusal, and
+    fails.
+    """
     failing = refusal_correctness(
-        REFUSAL_CASE, result(answer="Her address is on file."), steps("get_physician_profile")
+        REFUSAL_CASE,
+        result(answer="Which physician did you mean?", route=FinalAnswerRoute.FREE_TEXT),
+        [],
     )
 
     assert failing.value == 0.0
     assert "refusal expected" in failing.reason
+    assert "asked_clarification" in failing.reason
 
 
 def test_refusal_correctness_does_not_judge_a_case_that_asked_for_no_refusal():
@@ -513,3 +523,57 @@ def test_no_metric_reads_the_message_array():
     assert reconstructed.messages == []
     scored = score_run(CASE, reconstructed, steps("get_physician_profile"))
     assert scored.observed_outcome == ANSWERED
+
+
+# --- the flag is reported, never a criterion ----------------------------------
+
+def test_no_pass_criterion_reads_the_insufficiency_flag():
+    """It is applied inconsistently to identical input, so nothing may gate on it.
+
+    nexovar_dosing_docs flagged it on two runs of three and zelmarin_docs on one
+    of three, with the same goal and the same prompt each time. A metric built on
+    that would report a number that moves without the behaviour moving.
+    """
+    from eval.metrics import OBSERVED_NOT_SCORED
+
+    assert "declared_insufficiency" in OBSERVED_NOT_SCORED
+
+    flagged = result(insufficient=True)
+    unflagged = result(insufficient=False)
+    rows = steps("get_physician_profile")
+
+    for name, metric in METRICS_UNDER_TEST.items():
+        assert metric(REFUSAL_CASE, flagged, rows).value == metric(
+            REFUSAL_CASE, unflagged, rows
+        ).value, f"{name} changes with the flag"
+
+
+METRICS_UNDER_TEST = {
+    "task_completion": task_completion,
+    "refusal_correctness": refusal_correctness,
+    "tool_precision": tool_precision,
+    "grounding": grounding,
+}
+
+
+def test_refusal_correctness_abstains_where_only_the_flag_could_decide():
+    """A run that answered rather than declined has no structural refusal signal.
+
+    Scoring it 0.0 would fail a correct transparent report of absence; scoring it
+    1.0 from the flag would rest a pass on an unreliable field. It abstains, and
+    the scored column shows the cost.
+    """
+    answered = refusal_correctness(
+        REFUSAL_CASE, result(insufficient=True), steps("get_physician_profile")
+    )
+
+    assert answered.value is None
+    assert "reported rather than scored" in answered.reason
+
+
+def test_refusal_correctness_still_scores_a_structural_refusal():
+    declined = refusal_correctness(
+        REFUSAL_CASE, result(answer="I have no address on file.", route=FinalAnswerRoute.FREE_TEXT), []
+    )
+
+    assert declined.value == 1.0

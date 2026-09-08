@@ -1300,3 +1300,203 @@ doing genuinely different work.
 
 Recorded because the plan said otherwise and was approved on that basis.
 Dropping an approved refactor silently would leave the plan looking done.
+
+**`insufficient_information` was ambiguous, so the definition was fixed rather than the case.**
+The model flagged it on `zelmarin_docs` and not on `prepare_alvarez`. Those are
+the same shape -- an entity that exists with an empty related set -- so
+inconsistent behaviour on identical structure means the field admits two
+readings, not that one case was written wrong. Editing the case would have
+encoded one reading of an ambiguity and left the ambiguity in place.
+
+The two readings: "the information I needed was not available" against "I could
+not fully answer what was asked". An empty result is a complete answer under the
+first and an incomplete one under the second.
+
+The narrower reading is now stated in the field description: true only when a
+gap stopped the run answering the question asked; an empty result that *is* the
+answer -- no history on record, no documentation held -- leaves it false.
+
+**All thirteen cases were audited against that definition**, not just the two
+that surfaced the problem. Four changed, six were already consistent, and three
+are deliberately left undeclared because the definition does not settle them:
+`prepare_chen_nexovar` and `prepare_okafor_nexovar`, where the documentation
+answers the general question but not the specific renal one that a meeting turns
+on, and `prepare_my_meeting`, where the missing thing came from the user rather
+than from a tool. The metric is not applicable there, which is honest; asserting
+a guess to make the column full would be the same error one level up.
+
+**Re-scoring the stored traces settled the original disagreement before spending
+anything.** `prepare_alvarez` already agrees with the new definition -- the model
+returned false and false is now what the case expects. The model was right and
+the case was wrong, confirmed against data already collected rather than argued
+from first principles.
+
+Three cases now disagree and need fresh runs: `nexovar_dosing_docs`,
+`zelmarin_docs` and `compare_nexovar_cardizyn`, each flagging true where the
+definition says false. That is the whole cost of the change -- three cases, not a
+sweep -- and it is knowable only because the traces are re-scoreable.
+
+**Prediction, recorded before the runs.**
+This is the same class of fix as `due_date` and not the same as `sources`.
+`due_date` was a constraint the model could evaluate against its own draft, and
+stating it changed what the model generated: asked to create a follow-up with no
+date, it asked for one rather than inventing one. `sources` had no checkable
+shape -- any list of strings satisfies it -- so two description edits changed
+only the format of the fabrication, and only validation worked.
+
+`insufficient_information` has a checkable shape in the same sense: given a
+definition that names the test ("did a gap stop you answering the question
+asked"), the model can apply it to its own answer before submitting. So the
+prediction is that the three disagreeing cases move to false, and that Alvarez
+and Zelmarin -- the pair whose inconsistency started this -- agree with each
+other afterwards.
+
+If they do not, that is the finding, and the response is not another wording
+pass. Inconsistent behaviour on identical structure after the definition has
+been stated plainly would mean this is not a distinction the model can reliably
+draw, and the honest response is to stop using the field as a metric and score
+insufficiency from the answer text instead, or drop it. Two wording attempts on
+`sources` established what a third attempt is worth.
+
+**The calibration guard fired, as designed, and the recalibration is free.**
+The description edit changed the tool definitions, so the digest test failed and
+the estimate moved from 1,641 to 1,697 against a recorded 1,585. No smoke run is
+needed to fix it: the eval's `prepare_chen_nexovar` goal is byte-identical to the
+calibration goal, and the first model_call step of any of its runs carries the
+number. The existing traces record 1,585 three times, matching the constant
+exactly -- which is both a validation of that route and the reason the constant
+can be refreshed from the next sweep rather than from a separate run.
+
+**The prediction was half right, and the half it got wrong is the finding.**
+The description edit moved task completion to 1.00 on all four re-run cases,
+Alvarez held as a control. But the flag itself came out at 0.50 across twelve
+runs where every case now expects false, and the per-case breakdown is the
+result that matters:
+
+  nexovar_dosing_docs      [false, true,  true ]   0.33
+  prepare_alvarez          [false, false, false]   1.00   (control)
+  zelmarin_docs            [false, true,  false]   0.67
+  compare_nexovar_cardizyn [true,  true,  true ]   0.00
+
+Two of the four disagree with themselves. Same case, same goal, same prompt,
+three runs, different flag. No reading of the definition explains a different
+answer to identical input, so this is not the model drawing a line elsewhere --
+it is the model not drawing a stable line at all.
+
+`compare_nexovar_cardizyn` is the one consistent disagreement, and it is
+arguably defensible: asked to compare two products, a model may reasonably hold
+that documentation which describes each separately does not cover the comparison
+asked for. That is a real interpretive difference. The other two are noise.
+
+**This is the boundary case between the due_date class and the sources class.**
+`due_date` worked because the constraint was mechanically checkable: the model
+could hold its own draft against `^\\d{4}-\\d{2}-\\d{2}$` and see that "next
+Tuesday" fails. `sources` never worked because no checkable shape existed and
+only validation caught the failure.
+
+`insufficient_information` sits between them. Semantic clarity settled what the
+field *should* mean -- the definition now decides every case in the set, which it
+did not before -- but semantic clarity is not mechanical checkability, and
+applying "did a gap stop you answering the question asked" to a specific answer
+is a judgement the model makes differently on different runs. Stating a
+definition fixes what a field means. It does not make the field measurable.
+
+Per the pre-commitment, there is no third wording pass. Two attempts on `sources`
+established what a third is worth, and the same discipline applies here.
+
+**So the field is reported and never scored.**
+`declared_insufficiency` is in `OBSERVED_NOT_SCORED`, the table labels it
+"REPORTED, not a pass criterion", and a test asserts no metric's value changes
+when the flag flips.
+
+Auditing for contamination found one: `refusal_correctness` fell back to the
+flag whenever a run answered rather than declined, which is exactly the
+nakamura_unknown shape. It no longer does. `refused()` is structural or nothing,
+and a run that answered now scores no refusal correctness at all rather than
+being judged on an unreliable signal. The metric's coverage fell from 9 of 39
+runs to 5, which is the honest cost made visible in the `scored` column rather
+than absorbed into a number.
+
+No case's `expected_outcome` depends on the flag: the outcome classes are
+derived from tool calls and the shape of the answer, and a test asserts task
+completion is unchanged when the flag flips.
+
+**What is lost, stated plainly.** There is now no reliable structural signal
+distinguishing "reported an absence transparently" from "answered" on a run that
+used tools. `nakamura_unknown` passes task completion by producing an answer, and
+a fabricated answer about a physician who does not exist would pass it too. The
+adversarial suite covers fabrication from the other direction, and the trace
+records what was retrieved, so the gap is visible rather than silent -- but it is
+a gap, and closing it would need something the domain layer knows and the trace
+does not currently carry, such as the result status of each tool call.
+
+**Fabricated citations: the running tally, not a new event.**
+One rejected submission in the four-case re-run. Across every real run recorded
+to date -- 75 runs, 65 submissions, spanning the eval sweeps, the adversarial
+sweep and the manual smoke runs -- 2 submissions were rejected: a rate of 3.1%.
+All of these are post-envelope-fix. Before that fix, fabrication was observed in
+2 of the 3 submissions seen.
+
+The tally is the number worth quoting, not the individual event. One rejection in
+twelve reads as a regression; two in sixty-five reads as what it is -- a low
+residual rate, caught every time by validation, on a behaviour that was near
+universal before the model was shown the ids it was being asked to cite.
+
+**The envelope hypothesis is retired as noise, and the discipline paid for itself.**
+Tested with the pre-M3 prompt as the control arm, n=9 per arm: refusal 0.56 with
+the paragraph against 0.67 without, insufficiency 0.56 against 0.44. The
+difference is smaller than the run-to-run spread and the two measures point in
+opposite directions. The M3 observation was a single run that looked like a
+result and was not.
+
+Worth stating precisely because the temptation ran the other way: the favourable
+direction at M3 was the one that would have been banked, and the properly
+designed test found it pointing the other way. Writing it down as a hypothesis
+with a test design attached, rather than as a finding, is the only reason there
+is anything to retire rather than a claim quietly carried forward.
+
+The paragraph stays. It earns its place by naming the trust boundary for the M7
+injection cases, which is a different claim and one this experiment did not test.
+
+**Tier comparison: the constraints substitute for capability, and the residual is
+confined to judgement.**
+39 runs each, same definitions. Sol matches Luna on task completion, tool recall,
+forbidden-tool avoidance, grounding and fabrication, is marginally behind on tool
+precision (0.90 against 0.91) and on staying within a call budget (0.75 against
+1.00), takes more iterations (2.9 against 2.6), is roughly twice as slow at the
+median, and costs 30x.
+
+It leads on exactly one measure: applying the insufficiency definition
+consistently, 0.89 against 0.69 -- which is the one thing in the set that a
+schema cannot express, and the one the previous entry documents as requiring
+judgement under ambiguity.
+
+That is the finding rather than the cost ratio. Everything the harness can state
+structurally -- typed arguments, forbidden tools, a call budget, a required
+citation field -- the cheap model already does. The capability difference shows
+up only where the harness has nothing to say. For a bounded task with tight
+schemas and five tools, that argues for the cheap model in production, and it
+argues more generally that effort spent making constraints expressible is
+substitutable for effort spent buying capability.
+
+**The call-budget gap is one case and it is a strategy, not an error.**
+Only twelve runs are scored for that metric, so the difference was checked
+before being reported. All of it is `nexovar_dosing_docs`, on 3 of 3 Sol runs.
+Both tiers open with `search_product_docs{"query": "dosing"}`; Sol then issues a
+second, much more specific query where Luna stops. It found the same answer. The
+budget encodes "one call answers this", which is true, and Sol spends an
+iteration confirming it.
+
+**What the eval cannot see, named concretely.**
+`nakamura_unknown` scores task completion 1.00 on both tiers with observed
+outcome `answered`, and an invented profile for a physician who does not exist
+would score identically. The signal that distinguished them was
+`insufficient_information`, now demoted to a reported observation, so
+`refusal_correctness` abstains on that row rather than resting a pass on an
+unreliable field.
+
+Recorded as a concrete row rather than as a general caveat, because "the eval has
+limitations" is a sentence that costs nothing. Closing this one needs the domain
+result status -- not_found against ok -- carried into the trace, which is a
+schema change the current design deliberately avoided and would now have a
+reason to make.

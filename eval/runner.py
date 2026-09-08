@@ -26,7 +26,14 @@ from agentharness.harness.model_client import HarnessFatalError, ModelClient
 from agentharness.harness.registry import build_registry
 from agentharness.harness.tracer import SqliteTracer
 from agentharness.store.runs import RunStore
-from eval.metrics import METRICS, ScoredRun, aggregate, percentile, score_run
+from eval.metrics import (
+    METRICS,
+    OBSERVED_NOT_SCORED,
+    ScoredRun,
+    aggregate,
+    percentile,
+    score_run,
+)
 from eval.pricing import cost_of, price_note
 
 CASES_PATH = Path(__file__).resolve().parent / "cases.yaml"
@@ -170,7 +177,9 @@ def render_table(report: dict[str, Any]) -> str:
             lines.append(f"| {name} | n/a | - | 0 | never applicable |")
             continue
         note = ""
-        if entry.get("reads_submit_fields"):
+        if name in OBSERVED_NOT_SCORED:
+            note = "REPORTED, not a pass criterion -- see DECISIONS"
+        elif entry.get("reads_submit_fields"):
             share = entry.get("free_text_share") or 0.0
             note = f"reads submit-tool fields; {share:.0%} of runs were FREE_TEXT"
         lines.append(
