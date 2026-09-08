@@ -12,10 +12,10 @@ dependencies = [
     "openai>=3.0",
     "tiktoken>=0.9",
     "fastapi>=0.115",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
-# Each milestone adds only what it actually imports: pyyaml (M8).
 dev = [
     "pytest>=8.0",
 ]

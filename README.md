@@ -190,6 +190,66 @@ That is the same conclusion the fabricated-citations work reached from the other
 direction: instruction and detection are unreliable, and what holds is what is
 enforced.
 
+## Evaluation
+
+Thirteen fixed cases in `eval/cases.yaml`, each declaring its expected tools,
+forbidden tools, acceptable outcomes and grounding expectations. Every case runs
+n times, because `temperature=0` is not determinism and a single run is an
+anecdote.
+
+```
+python -m eval.runner  --model <name> --runs 3
+python -m eval.rescore --report eval/reports/<report>.json   # no API calls
+```
+
+### Results — gpt-5.6-luna
+
+39 runs, 2026-09-02, n=3 per case. Rates over three runs, not guarantees.
+
+| metric | mean | stdev | scored | note |
+|---|---|---|---|---|
+| task completion | 1.00 | 0.00 | 39/39 | every case, every run |
+| tool recall | 1.00 | 0.00 | 30/39 | |
+| tool precision | 0.90 | 0.14 | 30/39 | |
+| unnecessary call rate | 0.10 | 0.14 | 30/39 | lower is better |
+| forbidden tool avoided | 1.00 | 0.00 | 36/39 | |
+| within call budget | 1.00 | 0.00 | 12/39 | |
+| grounding | 1.00 | 0.00 | 18/39 | reads submit-tool fields; 18% of runs were FREE_TEXT |
+| refusal correctness | 1.00 | 0.00 | 9/39 | the three refusal cases only |
+| fabricated citation | 0.00 | 0.00 | 32/39 | lower is better |
+| declared insufficiency | 0.70 | 0.48 | 10/39 | see below — the misses are arguably the case's fault |
+| recovery | n/a | — | 0/39 | no run hit a model-visible error |
+
+mean iterations 2.7 · latency p50 3.0s / p95 10.9s · 196,098 prompt tokens
+(173,531 cached, 22,567 uncached) + 8,273 completion · **$0.0179 total**,
+prices checked 2026-08-31.
+
+The `scored` column is load-bearing. A metric reports only the runs its
+criterion applies to, so `refusal correctness 1.00 over 9/39` means the three
+refusal cases, three runs each — not a rate over the whole sweep.
+
+**Zero fabricated citations in 32 submissions**, across cases citing between
+zero and five sources. That is the strongest evidence yet that M4's fix worked:
+before `tool_call_id` was put in the tool-result envelope, the model invented
+ids in two of the three submissions observed. It had never been shown one. The
+M6 question — whether fabrication correlates with the number of sources — cannot
+be answered from this sweep, because there is nothing to correlate.
+
+**The one metric below 1.00 is probably a wrong expectation, not a wrong
+answer.** All three misses are `prepare_alvarez`, where the case says the run
+should flag insufficiency. The model instead answered "There are no meetings or
+open follow-ups on record, so there is no prior discussion" and left the flag
+false — reading `insufficient_information` as *"I could not get what I needed"*
+rather than *"what I got was empty"*. The record was complete; the history is
+empty. That reading is defensible and arguably better than the case's, and the
+number is reported as it stands rather than corrected by editing the expectation
+after seeing the result.
+
+### Not yet run
+
+`gpt-5.6-sol` (tier comparison) and the envelope experiment. Both will be
+recorded here with their numbers, or not at all.
+
 ## Running the tests
 
 ```
