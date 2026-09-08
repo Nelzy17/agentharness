@@ -3,6 +3,27 @@
 Tradeoffs recorded in the session they were made. Settled here means settled;
 do not re-litigate.
 
+This is a log, not a specification. Entries are left as they were written, including
+the ones later proved wrong, because the reasoning is the point and hindsight edits
+would destroy it. Where a conclusion changed, the original carries a forward pointer
+and appears in the index below.
+
+## Status index — what changed after it was written
+
+| entry | status | current state |
+|---|---|---|
+| M2: durations measured with `time.monotonic` | **REVERSED at M5** | `perf_counter` for intervals, `time.time` for timestamps. monotonic on Windows is `GetTickCount64` at 15.625ms and floored every duration to zero. |
+| M2: "is reasoning-off a confound in the tier comparison?" | **RESOLVED at M9** | No asymmetry. The probe shows both tiers reject function tools with reasoning omitted or `low`, identically. `reasoning_effort="none"` is the only configuration this family accepts with tools, not a concession made for the eval. |
+| M2: "M8 eval case: grounding under a truncated extract" | **NOT BUILT** | Superseded by the M8 scope, which fixed thirteen cases from the M0 appendix. Recorded rather than dropped: it remains a reasonable case and nothing in the eval covers truncation. |
+| M2/M4: cumulative token budget 40,000 | **RAISED at M4** | 65,000, when the iteration cap moved to 8 and the worst case reached ~32,600. |
+| M2/M4: iteration cap 6 | **RAISED at M4** | 8. Six made recovery from a rejected citation impossible on the hardest case. |
+| M3: "the envelope sentence may improve grounding" | **RETIRED at M8** | Noise. 0.56 refusal with against 0.67 without at n=9 per arm, smaller than the spread and pointing the opposite way to the M3 impression. |
+| M3/M4: calibration constants 1,300 → 1,545 → 1,585 | **SUPERSEDED** | 1,651, measured on the M8 sweep. History rather than contradiction: each figure was correct for the prompt and tool set of its milestone. |
+| M4: "the envelope fix stopped the fabrication" | **CORRECTED twice** | M7 downgraded it to partial mitigation on two runs; M8 measured it properly: 2 rejected submissions of 140 across 171 real runs, 1.4%, against 2 of 3 before the fix. |
+| M6: "a clarification request is a third outcome" | **DELIVERED at M8** | `asked_clarification` is an observable class and `prepare_my_meeting` is its case. |
+| M8: "the one metric below 1.00 is a disputed expectation, and it stays disputed" | **SUPERSEDED** | The dispute was resolved by fixing the field definition, not the case; the field was then demoted to reported-only because the model applies it inconsistently. |
+| M8 plan: unify the two eval runners | **DROPPED** | On inspection they produce different objects for different questions. Only the reports directory is shared. |
+
 ---
 
 ## M0 — domain layer
@@ -252,6 +273,9 @@ the thing this project exists to do. Hardcoded rather than configurable -- one
 implementation, and configuration for one implementation is ceremony.
 
 **Open question for M8: is reasoning-off a confound in the tier comparison?**
+*RESOLVED at M9: no. Both tiers reject tools with reasoning omitted or `low`,
+identically, so the constraint is family-wide and the comparison is like-for-like
+by measurement as well as by construction.*
 The restriction above was observed on Luna. If Sol or Terra accept function
 tools with reasoning enabled, then a Luna-vs-Sol comparison run through this
 client is measuring reasoning-off against reasoning-on rather than tier
@@ -287,6 +311,9 @@ far more than the truncation saves. This is measured behaviour from the smoke
 run, not a guess.
 
 **M8 eval case, observed in the smoke run: grounding under a truncated extract.**
+*NOT BUILT. The M8 scope fixed thirteen cases from the M0 appendix and this was
+not among them. Left recorded rather than deleted: nothing in the eval covers
+truncation, and this is still the case that would.*
 `search_product_docs` returned a snippet that cut off mid-sentence in the middle
 of a titration schedule. The model stated that the extract was incomplete and
 declined to present the fuller schedule rather than completing it from its own
@@ -406,6 +433,9 @@ roughly 80 tokens on the fixed prefix and did not break prefix stability, which
 is what the M3 cache-preservation test asserts structurally.
 
 **Hypothesis for M8, not a conclusion: the envelope sentence may improve grounding.**
+*RETIRED at M8: noise. Tested with the pre-M3 prompt as control, n=9 per arm --
+refusal 0.56 with against 0.67 without, pointing opposite to the impression
+below. The favourable-looking direction was the wrong one.*
 On the same goal, the M3 run's final answer was better grounded than M2's. It
 stated that the documentation does not cover renal-specific dosing at all,
 warned against presenting an undocumented schedule, and closed with an explicit
@@ -560,6 +590,7 @@ fails at 6.2% until the next smoke run. That is the guard working as designed,
 and the number stays as measured rather than being adjusted to fit.
 
 **A stronger field description changed the shape of the hallucination, not the rate.**
+*Still current. The fix that followed is corrected twice below -- see M5 and M8.*
 After the sources description was rewritten to say the ids are long opaque
 strings that must be copied exactly and never invented or renumbered, the next
 run fabricated again -- five UUIDs instead of `call_1`..`call_5`. The
@@ -692,6 +723,9 @@ is a cache, not a record, and a test asserts the renderer imports no harness,
 domain or tools module.
 
 **The clock is on the loop; the tracer does no time arithmetic.**
+*The clock chosen here was `time.monotonic`, which was wrong on Windows and is
+reversed later in this same milestone -- see "Durations were being measured with
+a clock that cannot measure them".*
 Durations are measured at step boundaries by one injected clock in one place, so
 a clock that lies can only be wrong there. The trap this avoids is specific: a
 fake returning a constant makes every duration zero and every assertion pass
@@ -908,6 +942,8 @@ prompt is where the intent is stated, the schema is where it can be enforced
 cheaply, and the validator is where it is enforced when the schema cannot.
 
 **M8 requirement: a clarification request is a third outcome, not a completion.**
+*DELIVERED at M8: `asked_clarification` is an observable class, detected from
+the answer's opening sentence, with `prepare_my_meeting` as its case.*
 That same run terminated `COMPLETED` with `route=FREE_TEXT` and zero tool calls,
 because it asked the user a question. That is correct behaviour -- the date was
 missing and inventing one would have been the failure -- but it is neither task
@@ -1255,6 +1291,9 @@ remains in place and is now the thing that proves the absence rather than the
 thing catching the failure.
 
 **The one metric below 1.00 is a disputed expectation, and it stays disputed.**
+*SUPERSEDED. It did not stay disputed: the ambiguity was in the field rather
+than the case, the definition was narrowed, and the field was then demoted to
+reported-only. See the two entries at the end of this file.*
 `declared_insufficiency` scored 0.70. All three misses are `prepare_alvarez`,
 where the case declares `expect_insufficient: true` and the model left the flag
 false while answering "There are no meetings or open follow-ups on record, so
